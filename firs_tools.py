@@ -9,6 +9,9 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 import astropy.io.fits as fits
 from sunpy.coordinates import frames
+from importlib import resources
+from . import FTS_atlas
+
 
 # NOTE: IMPORTANT
 # ---------------
@@ -19,7 +22,7 @@ from sunpy.coordinates import frames
 # At a later date, I will also use this map for the prefilter.
 # This package will perform a reasonably-decent set of additional calibrations to level-1 FIRS data
 # Currently, it will perform:
-# wavelength calibration (from FTS atlas)
+# wavelength calibration (from FTS )
 # Prefilter correction (from Stokes-I and FTS atlas)
 # Correction for the linear tilt of the QUV spectra (via 1d fitting)
 # Correction for fringes (via Fourier filtering the flat map)
@@ -81,6 +84,10 @@ def _fts_window(wavemin, wavemax, atlas='FTS', norm=True, lines=False):
 		Array of line names between wavemin and wavemax
 	"""
 
+	def read_data(path, fname) -> np.array:
+		with resources.path(path, fname) as df:
+			return np.load(df)
+
 	if wavemin >= wavemax:
 		print("Minimum Wavelength is greater than or equal to the Maximum Wavelength. Reverse those, bud.")
 		return None
@@ -91,29 +98,29 @@ def _fts_window(wavemin, wavemax, atlas='FTS', norm=True, lines=False):
 
 	if atlas.lower() == "wallace":
 		if (wavemax <= 5000.) or (wavemin <= 5000.):
-			atlas_angstroms = np.load("FTS_atlas/Wallace2011_290-1000nm_Wavelengths.npy")
-			atlas_spectrum = np.load("FTS_atlas/Wallace2011_290-1000nm_Observed.npy")
+			atlas_angstroms = read_data('FTS_atlas', 'Wallace2011_290-1000nm_Wavelengths.npy')
+			atlas_spectrum = read_data("FTS_atlas", 'Wallace2011_290-1000nm_Observed.npy')
 		else:
-			atlas_angstroms = np.load("FTS_atlas/Wallace2011_500-1000nm_Wavelengths.npy")
-			atlas_spectrum = np.load("FTS_atlas/Wallace2011_500-1000nm_Corrected.npy")
+			atlas_angstroms = read_data('FTS_atlas', 'Wallace2011_500-1000nm_Wavelengths.npy')
+			atlas_spectrum = read_data('FTS_atlas', 'Wallace2011_500-1000nm_Corrected.npy')
 	else:
-		atlas_angstroms = np.load("FTS_atlas/FTS1984_296-1300nm_Wavelengths.npy")
+		atlas_angstroms = read_data('FTS_atlas', 'FTS1984_296-1300nm_Wavelengths.npy')
 		if norm:
-			atlas_spectrum = np.load("FTS_atlas/FTS1984_296-1300nm_Atlas.npy")
+			atlas_spectrum = read_data('FTS_atlas', 'FTS1984_296-1300nm_Atlas.npy')
 		else:
 			print("Using full solar irradiance. I hope you know what you're doing")
-			atlas_spectrum = np.load("FTS_atlas/FTS1984_296-1300nm_Irradiance.npy")
+			atlas_spectrum = read_data('FTS_atlas', 'FTS1984_296-1300nm_Irradiance.npy')
 
 	idx_lo = _find_nearest(atlas_angstroms, wavemin) - 5
 	idx_hi = _find_nearest(atlas_angstroms, wavemax) + 5
-	# selection = (atlas_angstroms < wavemax) & (atlas_angstroms > wavemin)
 
 	wave = atlas_angstroms[idx_lo:idx_hi]
 	spec = atlas_spectrum[idx_lo:idx_hi]
 
 	if lines:
-		line_centers_full = np.load("FTS_atlas/RevisedMultiplet_Linelist_2950-13200_CentralWavelengths.npy")
-		line_names_full = np.load("FTS_atlas/RevisedMultiplet_Linelist_2950-13200_IonNames.npy")
+		line_centers_full = read_data("FTS_atlas", 'RevisedMultiplet_Linelist_2950-13200_CentralWavelengths.npy')
+		line_names_full = read_data('FTS_atlas', 'RevisedMultiplet_Linelist_2950-13200_IonNames.npy')
+
 		line_selection = (line_centers_full < wavemax) & (line_centers_full > wavemin)
 		line_centers = line_centers_full[line_selection]
 		line_names = line_names_full[line_selection]
