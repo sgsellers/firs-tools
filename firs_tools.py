@@ -1,14 +1,131 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import RectangleSelector,SpanSelector
+from matplotlib.widgets import RectangleSelector, SpanSelector
 from scipy.io import readsav
 import scipy.interpolate as scinterp
-import scipy.signal as scisig
 import sean_tools as st
 from scipy.optimize import curve_fit
+import numpy.polynomial.polynomial as npoly
+import astropy.units as u
+from astropy.coordinates import SkyCoord
+import astropy.io.fits as fits
+from sunpy.coordinates import frames
 
-def rolling_median(data,window):
-	"""Simple rolling median function, rolling by the central value. By default preserves the edges to provide an output array of the same shape as the input.
+# NOTE: IMPORTANT
+# ---------------
+# This package does not constitute a substitute for the IDL FIRS pipeline.
+# Rather, this should be used after the FIRS pipeline has outputted a level-1 map.
+# When running the IDL pipeline, pass a FIRS flat field through it as if it were a science map.
+# This flat is used for fringe corrections.
+# At a later date, I will also use this map for the prefilter.
+# This package will perform a reasonably-decent set of additional calibrations to level-1 FIRS data
+# Currently, it will perform:
+# wavelength calibration (from FTS atlas)
+# Prefilter correction (from Stokes-I and FTS atlas)
+# Correction for the linear tilt of the QUV spectra (via 1d fitting)
+# Correction for fringes (via Fourier filtering the flat map)
+# It will then wrap the FIRS file into a nice fits HDUList, and write it as a level-1.5 product.
+
+
+def _gaussian(x, a0, a1, a2, c):
+	"""Function to define a Gaussian profile over range x
+
+	Parameters
+	----------
+	x  : array-like
+		The range over which the gaussian is calculated
+	a0 : float
+		The height of the Gaussian peak
+	a1 : float
+		The offset of the Gaussian core
+	a2 : float
+		The standard deviation of the Gaussian, the width
+	c  : float
+		Vertical offset of the gaussian continuum
+
+	Returns
+	-------
+	y : array-like
+		The corresponding intensities for a Gaussian defined over x
+	"""
+	z = (x-a1)/a2
+	y = a0*np.exp(- z**2 / 2.) + c
+	return y
+
+
+def _fts_window(wavemin, wavemax, atlas='FTS', norm=True, lines=False):
+	""" For a given wavelength range, return the solar reference spectrum within that range.
+
+	Parameters
+	----------
+	wavemin : float
+	The minimum desired wavelength (in angstroms)
+	wavemax : float
+		The maximum desired wavelength (in angstroms)
+	atlas : str
+		Currently accepts "Wallace" and "FTS" (as these are the only two downloaded).
+		Wallace takes the 2011 Wallace updated atlas, FTS takes the base 1984 FTS atlas.
+	norm : bool
+		If False and atlas is set to "FTS", will return the solar irradiance between wavemin and wavemax. Do not recommend
+	lines : bool
+		If True, returns additional arrays denoting line centers and names between wavemin and wavemax.
+
+	Returns
+	-------
+	wave : array-like
+		Array of wavelengths from the FTS atlas between wavemin and wavemax
+	spec : array-like
+		Array of corresponding spectral values
+	line_centers : array-like, optional
+		Array of line centers between wavemin and wavemax
+	line_names : array-like, optional
+		Array of line names between wavemin and wavemax
+	"""
+
+	if wavemin >= wavemax:
+		print("Minimum Wavelength is greater than or equal to the Maximum Wavelength. Reverse those, bud.")
+		return None
+	if (wavemin <= 2960) or (wavemax >= 13000):
+		print(
+			"Your selected wavelengths are not in FTS atlas bounds. Come back when I bother downloading the IR/UV atlas")
+		return None
+
+	if atlas.lower() == "wallace":
+		if (wavemax <= 5000.) or (wavemin <= 5000.):
+			atlas_angstroms = np.load("FTS_atlas/Wallace2011_290-1000nm_Wavelengths.npy")
+			atlas_spectrum = np.load("FTS_atlas/Wallace2011_290-1000nm_Observed.npy")
+		else:
+			atlas_angstroms = np.load("FTS_atlas/Wallace2011_500-1000nm_Wavelengths.npy")
+			atlas_spectrum = np.load("FTS_atlas/Wallace2011_500-1000nm_Corrected.npy")
+	else:
+		atlas_angstroms = np.load("FTS_atlas/FTS1984_296-1300nm_Wavelengths.npy")
+		if norm:
+			atlas_spectrum = np.load("FTS_atlas/FTS1984_296-1300nm_Atlas.npy")
+		else:
+			print("Using full solar irradiance. I hope you know what you're doing")
+			atlas_spectrum = np.load("FTS_atlas/FTS1984_296-1300nm_Irradiance.npy")
+
+	idx_lo = _find_nearest(atlas_angstroms, wavemin) - 5
+	idx_hi = _find_nearest(atlas_angstroms, wavemax) + 5
+	# selection = (atlas_angstroms < wavemax) & (atlas_angstroms > wavemin)
+
+	wave = atlas_angstroms[idx_lo:idx_hi]
+	spec = atlas_spectrum[idx_lo:idx_hi]
+
+	if lines:
+		line_centers_full = np.load("FTS_atlas/RevisedMultiplet_Linelist_2950-13200_CentralWavelengths.npy")
+		line_names_full = np.load("FTS_atlas/RevisedMultiplet_Linelist_2950-13200_IonNames.npy")
+		line_selection = (line_centers_full < wavemax) & (line_centers_full > wavemin)
+		line_centers = line_centers_full[line_selection]
+		line_names = line_names_full[line_selection]
+		return wave, spec, line_centers, line_names
+	else:
+		return wave, spec
+
+
+def _rolling_median(data, window):
+	"""Simple rolling median function, rolling by the central value. By default, preserves the edges to provide
+	an output array of the same shape as the input.
 	Parameters:
 	-----------
 	data : array-like
@@ -35,46 +152,63 @@ def rolling_median(data,window):
 		rolled[half_window + i] = np.nanmedian(data[i:half_window + i])
 	return rolled
 
-def read_firs(firs_file,sav_file):
-	"""Simple routine to read FIRS binary file into numpy array for ease of use
+
+def _find_nearest(array, value):
+	""" Determines the index of the closest value in an array to a specified other value
+
+	Parameters
+	----------
+	array : array-like
+		An array of int/float values
+	value : int,float
+		A value that we will check for in the array
+
+	Returns
+	-------
+	idx : int
+		The index of the input array where the closest value is found
+	"""
+	idx = (np.abs(array-value)).argmin()
+	return idx
+
+
+def read_firs(firs_file):
+	"""Simple routine to read FIRS binary file into numpy array for ease of use.
+	Assumes a .sav file of the same name in the same location as firs_file
 	Parameters:
 	-----------
 	firs_file : str
 		path to FIRS *.dat binary file for readin
-	sav_file : str
-		path to FIRS *.dat.sav IDL save file for readin dimension
-	
+
 	Returns:
 	--------
 	firs_data : array-like
 		Formatted nd array of FIRS data
 	"""
+	sav_file = firs_file + '.sav'
+
 	firs_mets = readsav(sav_file)
 	firs_nspex = int(firs_mets['dx_final'] + 1)
 	firs_ysize = int(firs_mets['dy_final'] + 1)
 
-	firs = np.fromfile(firs_file,dtype = np.float32)
+	firs = np.fromfile(firs_file, dtype=np.float32)
 	firs_xsize = int(len(firs)/4/firs_nspex/firs_ysize)
 
-	return firs.reshape((firs_xsize,4,firs_ysize,firs_nspex))
+	return firs.reshape((firs_xsize, 4, firs_ysize, firs_nspex))
 
-def select_callback(eclick,erelease):
+
+def select_callback(eclick, erelease):
 	"""
 	Callback for line selection, with eclick and erelease being the press and release events.
 	"""
 
-	x1,y1 = eclick.xdata,eclick.ydata
-	x2,y2 = erelease.xdata,erelease.ydata
+	x1, y1 = eclick.xdata, eclick.ydata
+	x2, y2 = erelease.xdata, erelease.ydata
 
-	return sorted([x1,x2]),sorted([y1,y2])
+	return sorted([x1, x2]), sorted([y1, y2])
 
-#def onselect(xmin,xmax):
-#	indmin,indmax = np.searchsorted(x,(xmin,xmax))
-#	indmax = min(len(x) - 1,indmax)
-#	region_x = x[indmin:indmax]
-#	region_y = y[indmin:indmax]
 
-def select_image_region(img_data,xdata = None):
+def select_image_region(img_data, xdata=None):
 	"""Generalized function to plot an image and allow the user to select a region.
 	Parameters:
 	-----------
@@ -93,15 +227,16 @@ def select_image_region(img_data,xdata = None):
 	ax = fig.add_subplot(111)
 	
 	if len(img_data.shape) == 1:
-		if xdata != None:
-			ax.plot(xdata,img_data,drawstyle = 'steps-mid')
+		if xdata is not None:
+			ax.plot(xdata, img_data, drawstyle='steps-mid')
 		else:
 			xdata = np.arange(len(img_data))
-			ax.plot(img_data,drawstyle = 'steps-mid')
-			ax.set_xlim(xdata[0],xdata[-1])
-		def onselect(xmin,xmax):
-			indmin,indmax = np.searchsorted(xdata,(xmin,xmax))
-			indmax = min(len(xdata) - 1,indmax)
+			ax.plot(img_data, drawstyle='steps-mid')
+			ax.set_xlim(xdata[0], xdata[-1])
+
+		def onselect(xmin, xmax):
+			indmin, indmax = np.searchsorted(xdata, (xmin, xmax))
+			indmax = min(len(xdata) - 1, indmax)
 			region_x = xdata[indmin:indmax]
 			region_y = img_data[indmin:indmax]
 
@@ -111,28 +246,22 @@ def select_image_region(img_data,xdata = None):
 				ax,
 				onselect,
 				"horizontal",
-				useblit = True,
-				button = [1,3],
-				interactive = True,
-				drag_from_anywhere = True)
+				useblit=True,
+				button=[1, 3],
+				interactive=True,
+				drag_from_anywhere=True)
 		plt.show()
 	elif len(img_data.shape) == 2:
-		ax.imshow(img_data,origin = 'lower',aspect = 'auto',interpolation = 'none')
-		
-		def onselect(xmin,xmax):
-			indmin,indmax = np.searchsorted(x,(xmin,xmax))
-			indmax = min(len(x) - 1,indmax)
-			region_x = x[indmin:indmax]
-			region_y = y[indmin:indmax]
+		ax.imshow(img_data, origin='lower', aspect='auto', interpolation='none')
 
 		ax.set_title(f"Click and drag to draw a {RectangleSelector.__name__}.\n Press t to toggle")
 		selector = RectangleSelector(
 			ax,
 			select_callback,
-			useblit = True,
-			button = [1,3],
-			spancoords = 'pixels',
-			interactive = True)
+			useblit=True,
+			button=[1, 3],
+			spancoords='pixels',
+			interactive=True)
 		plt.show()
 	
 	else:
@@ -141,55 +270,151 @@ def select_image_region(img_data,xdata = None):
 
 	return selector.extents
 
-def firs_wavelength_cal(sample_int_spectrum,wavelims = [10818,10858]):
+
+def select_spec_region(spectrum, reference_spectrum):
+	"""Function the plots the spectrum and reference in adjacent axes, then allows the user to alter the highlighted
+	portions to select discrete corresponding regions in the spectrum and reference.
+
+	Parameters:
+	-----------
+	spectrum : array-like
+		Spectral data to for selection
+	reference_spectrum : array-like
+		Spectrum of the reference
+
+	Returns:
+	--------
+	line_selections : array-like
+		Array of selected indices
+	"""
+
+	xdata = np.arange(len(spectrum))
+	xref = np.arange(len(reference_spectrum))
+
+	fig = plt.figure()
+	ax_dat = fig.add_subplot(211)
+	ax_dat.plot(xdata, spectrum, drawstyle='steps-mid', color='k')
+
+	ax_ref = fig.add_subplot(212)
+	ax_ref.plot(xref, reference_spectrum, drawstyle='steps-mid', color='k')
+
+	def onselect1(xmin, xmax):
+		indmin, indmax = np.searchsorted(xdata, (xmin, xmax))
+		indmax = min(len(xdata) - 1, indmax)
+
+	def onselect2(xmin, xmax):
+		indmin, indmax = np.searchsorted(xdata, (xmin, xmax))
+		indmax = min(len(xdata) - 1, indmax)
+
+	def onselect3(xmin, xmax):
+		indmin, indmax = np.searchsorted(xref, (xmin, xmax))
+		indmax = min(len(xref) - 1, indmax)
+
+	def onselect4(xmin, xmax):
+		indmin, indmax = np.searchsorted(xref, (xmin, xmax))
+		indmax = min(len(xref) - 1, indmax)
+
+	ax_dat.set_title(f"Click and drag to select a two regions in the top plot. \nSelect the same two below.")
+
+	selector1 = SpanSelector(
+		ax_dat,
+		onselect1,
+		"horizontal",
+		useblit=True,
+		props=dict(alpha=0.5, facecolor='C0'),
+		interactive=True,
+		drag_from_anywhere=True,
+		ignore_event_outside=True
+	)
+
+	selector2 = SpanSelector(
+		ax_dat,
+		onselect2,
+		"horizontal",
+		useblit=True,
+		props=dict(alpha=0.5, facecolor='C1'),
+		interactive=True,
+		drag_from_anywhere=True,
+		ignore_event_outside=True
+	)
+
+	selector3 = SpanSelector(
+		ax_ref,
+		onselect3,
+		"horizontal",
+		useblit=True,
+		props=dict(alpha=0.5, facecolor='C0'),
+		interactive=True,
+		drag_from_anywhere=True,
+		ignore_event_outside=True
+	)
+
+	selector4 = SpanSelector(
+		ax_ref,
+		onselect4,
+		"horizontal",
+		useblit=True,
+		props=dict(alpha=0.5, facecolor='C1'),
+		interactive=True,
+		drag_from_anywhere=True,
+		ignore_event_outside=True
+	)
+
+	selector1._selection_completed = True
+	selector2._selection_completed = True
+	selector3._selection_completed = True
+	selector4._selection_completed = True
+
+	xmin1, xmax1 = xdata[0], xdata[int(len(xdata)/8)]
+	selector1.extents = (xmin1, xmax1)
+	xmin2, xmax2 = xdata[int(7 * len(xdata) / 8)], xdata[-1]
+	selector2.extents = (xmin2, xmax2)
+
+	xmin3, xmax3 = xref[0], xref[int(len(xref) / 8)]
+	selector3.extents = (xmin3, xmax3)
+	xmin4, xmax4 = xref[int(7 * len(xref) / 8)], xref[-1]
+	selector4.extents = (xmin4, xmax4)
+
+	plt.show()
+
+	line_selections = [
+		selector1.extents,
+		selector2.extents,
+		selector3.extents,
+		selector4.extents
+	]
+
+	return line_selections
+
+
+# noinspection PyTupleAssignmentBalance
+def firs_wavelength_cal(sample_int_spectrum, wavelims=(10818, 10858)):
 	"""Calculates the FIRS wavelength array from comparison to the FTS atlas.
+
+	2023-04-04: Rewritten ground up for simplicity and ease of use.
+
 	Parameters:
 	-----------
 	sample_int_spectrum : array-like
 		1-D Array of intensity for wavelength calibration. Normalize it first, please.
 	wavelims : list
-		Upper and lower wavelength bounds for FTS atlas selection. 
+		Upper and lower wavelength bounds for FTS atlas selection.
 	Returns:
 	--------
 	wavelength_array : array-like
 		Array corresponding to sample_int_spectrum with the wavelength corresponding to each point.
 	"""
 
-	print("Select a recognizable, gaussian-esque line from your FIRS spectrum")
-	line1_exts = select_image_region(sample_int_spectrum)
+	fts_w, fts_i = st.FTS_window(wavelims[0], wavelims[1])
 
-	fig = plt.figure()
-	ax = fig.add_subplot(111)
-	ax.plot(sample_int_spectrum)
-	ax.axvspan(line1_exts[0],line1_exts[1],alpha = 0.5,color = 'C3')
-	plt.show(block = False)
-	print("Great. Do it again.")
+	print("Select recognizable, gaussian-esque lines from your FIRS spectrum and the reference FTS spectrum")
+	line_exts = select_spec_region(sample_int_spectrum, fts_i)
 
-	line2_exts = select_image_region(sample_int_spectrum)
-	
-	fig = plt.figure()
-	ax = fig.add_subplot(111)
-	ax.plot(sample_int_spectrum)
-	ax.axvspan(line1_exts[0],line1_exts[1],alpha = 0.5, color = 'C3')
-	ax.axvspan(line2_exts[0],line2_exts[1],alpha = 0.5, color = 'C3')
-	plt.show(block = False)
+	line1_exts = line_exts[0]
+	line2_exts = line_exts[1]
 
-	fts_w,fts_i = st.FTS_window(wavelims[0],wavelims[1])
-
-	print("Okay. Select the first line again, this time from the FTS atlas.")
-
-	line1_fts = select_image_region(fts_i)
-
-	print("And the second line")
-	
-	fig = plt.figure()
-	ax = fig.add_subplot(111)
-	ax.plot(sample_int_spectrum)
-	ax.axvspan(line1_exts[0],line1_exts[1],alpha = 0.5, color = 'C3')
-	ax.axvspan(line2_exts[0],line2_exts[1],alpha = 0.5, color = 'C3')
-	plt.show(block = False)
-
-	line2_fts = select_image_region(fts_i)
+	line1_fts = line_exts[2]
+	line2_fts = line_exts[3]
 
 	line1_firs_i = sample_int_spectrum[int(line1_exts[0]):int(line1_exts[1])]
 	line2_firs_i = sample_int_spectrum[int(line2_exts[0]):int(line2_exts[1])]
@@ -197,66 +422,99 @@ def firs_wavelength_cal(sample_int_spectrum,wavelims = [10818,10858]):
 	line1_fts_i = fts_i[int(line1_fts[0]):int(line1_fts[1])]
 	line2_fts_i = fts_i[int(line2_fts[0]):int(line2_fts[1])]
 
-	line1_firs_fit,_ = curve_fit(
-			st.gaussian,
-			np.arange(len(line1_firs_i)),
-			line1_firs_i,
-			p0 = [
-				line1_firs_i.min(),
-				len(line1_firs_i)/2,
-				len(line1_firs_i)/4,
-				line1_firs_i[0]]
+	line1_firs_fit, _ = curve_fit(
+		st.gaussian,
+		np.arange(len(line1_firs_i)),
+		line1_firs_i,
+		p0=[
+			line1_firs_i.min(),
+			len(line1_firs_i) / 2,
+			len(line1_firs_i) / 4,
+			line1_firs_i[0]]
 	)
 
-	line2_firs_fit,_ = curve_fit(
-			st.gaussian,
-			np.arange(len(line2_firs_i)),
-			line2_firs_i,
-			p0 = [
-				line2_firs_i.min(),
-				len(line2_firs_i)/2,
-				len(line2_firs_i)/4,
-				line2_firs_i[0]]
+	line2_firs_fit, _ = curve_fit(
+		st.gaussian,
+		np.arange(len(line2_firs_i)),
+		line2_firs_i,
+		p0=[
+			line2_firs_i.min(),
+			len(line2_firs_i) / 2,
+			len(line2_firs_i) / 4,
+			line2_firs_i[0]]
 	)
 
-	line1_fts_fit,_ = curve_fit(
-			st.gaussian,
-			np.arange(len(line1_fts_i)),
-			line1_fts_i,
-			p0 = [
-				line1_fts_i.min(),
-				len(line1_fts_i)/2,
-				len(line1_fts_i)/4,
-				line1_fts_i[0]]
+	line1_fts_fit, _ = curve_fit(
+		st.gaussian,
+		np.arange(len(line1_fts_i)),
+		line1_fts_i,
+		p0=[
+			line1_fts_i.min(),
+			len(line1_fts_i) / 2,
+			len(line1_fts_i) / 4,
+			line1_fts_i[0]]
 	)
 
-	line2_fts_fit,_ = curve_fit(
-			st.gaussian,
-			np.arange(len(line2_fts_i)),
-			line2_fts_i,
-			p0 = [
-				line2_fts_i.min(),
-				len(line2_fts_i)/2,
-				len(line2_fts_i)/4,
-				line2_fts_i[0]]
+	line2_fts_fit, _ = curve_fit(
+		st.gaussian,
+		np.arange(len(line2_fts_i)),
+		line2_fts_i,
+		p0=[
+			line2_fts_i.min(),
+			len(line2_fts_i) / 2,
+			len(line2_fts_i) / 4,
+			line2_fts_i[0]]
 	)
 
-	line1_FTS_wvl = fts_w[int(line1_fts[0]) + int(line1_fts_fit[1])]
-	line2_FTS_wvl = fts_w[int(line2_fts[0]) + int(line2_fts_fit[1])]
+	line1_fts_wvl = fts_w[int(line1_fts[0]) + int(line1_fts_fit[1])]
+	line2_fts_wvl = fts_w[int(line2_fts[0]) + int(line2_fts_fit[1])]
 
 	line1_firs_center = int(line1_exts[0]) + int(line1_firs_fit[1])
 	line2_firs_center = int(line2_exts[0]) + int(line2_firs_fit[1])
 
-	angstrom_per_pixel = np.abs(line2_FTS_wvl - line1_FTS_wvl)/np.abs(line2_firs_center - line1_firs_center)
+	angstrom_per_pixel = np.abs(line2_fts_wvl - line1_fts_wvl) / np.abs(line2_firs_center - line1_firs_center)
 
-	zero_wvl = line1_FTS_wvl - (angstrom_per_pixel * line1_firs_center)
+	zero_wvl = line1_fts_wvl - (angstrom_per_pixel * line1_firs_center)
 
-	wavelength_array = (np.arange(0,len(sample_int_spectrum))*angstrom_per_pixel) + zero_wvl
+	wavelength_array = (np.arange(0, len(sample_int_spectrum)) * angstrom_per_pixel) + zero_wvl
 
 	return wavelength_array
 
-def firs_prefilter_correction(firs_data,wavelength_array,degrade_to = 50,rolling_window = 8,return_pfcs = False):
-	"""Applies a prefilter correction to FIRS intensity data, then correct QUV channels for I. Pre-filter is determined pixel-to-pixel by dividing the observed spectrum by the FTS spectrum, degrading the dividend to n points, then taking the rolling median of the degraded spectrum.
+
+def linear_spectral_tilt_correction(wave, spec):
+	"""Subtracts a 1st order polynomial from given wave and spec.
+
+	Parameters
+	----------
+	wave : array-like
+		Wavelength grid
+	spec : array-like
+		Corresponding spectrum
+
+	Returns
+	-------
+	tilt_corrected : array-like
+		Spectrum corrected for tilt
+	"""
+
+	coefs = npoly.Polynomial.fit(wave, spec, 1).convert().coef
+	fit_line = wave * coefs[1] + coefs[0]
+
+	tilt_corrected = spec - fit_line
+	return tilt_corrected
+
+
+def firs_prefilter_correction(firs_data, wavelength_array, degrade_to=50, rolling_window=8, return_pfcs=False):
+	"""Applies a prefilter correction to FIRS intensity data, then correct QUV channels for I.
+	Pre-filter is determined along the slit by dividing the observed spectrum by the FTS spectrum,
+	degrading the dividend to n points, then taking the rolling median of the degraded spectrum.
+
+	2023-03-29: Adding correction for spectral tilt via linear fit to QUV
+
+	2023-04-04: Rather that creating a pfc for each x,y in a 4D cube, we now average the n_slits/8 brightest slit
+		positions to create an average slit. Then we create a pfc for each spectrum along the slit. This is applied to
+		each slit position.
+
 	Parameters:
 	-----------
 	firs_data : array-like
@@ -271,62 +529,422 @@ def firs_prefilter_correction(firs_data,wavelength_array,degrade_to = 50,rolling
 	Returns:
 	--------
 	firs_data_corr : array-like
-		An array of the same shape as the input firs_data, containing the prefilter corrected I, as well as QUV divided by the pre-filter corrected I
-	prefilter_corrections : array-like, optional
-		An array the calculated prefilter corrections
+		An array of the same shape as the input firs_data, containing the prefilter corrected I,
+		as well as QUV divided by the pre-filter corrected I
+	slit_pfc : array-like, optional
+		An array of the calculated prefilter corrections. For a 4D data cube, this is for the average slit.
 	"""
 
-	fts_wave,fts_spec = st.FTS_window(wavelength_array[0],wavelength_array[-1])
-	fts_spec_in_FIRS_resolution = scinterp.interp1d(fts_wave,fts_spec)(wavelength_array)
-	degrade_wave = np.linspace(wavelength_array[0],wavelength_array[-1],num = degrade_to)
+	fts_wave, fts_spec = st.FTS_window(wavelength_array[0], wavelength_array[-1])
+	fts_spec_in_firs_resolution = scinterp.interp1d(fts_wave, fts_spec)(wavelength_array)
+	degrade_wave = np.linspace(wavelength_array[0], wavelength_array[-1], num=degrade_to)
 	firs_data_corr = np.zeros(firs_data.shape)
-	prefilter_corrections = np.zeros(
-			tuple(
-				np.array(firs_data.shape)[
-					np.array(firs_data.shape) != 4]))
 	if len(firs_data.shape) == 2:
 		if firs_data.shape[0] == 4:
-			divided = firs_data[0,:] / fts_spec_in_FIRS_resolution
+			divided = firs_data[0, :] / fts_spec_in_firs_resolution
 		else:
-			divided = firs_data[:,0] / fts_spec_in_FIRS_resolution
-		firsFTS_interp = scinterp.interp1d(
+			divided = firs_data[:, 0] / fts_spec_in_firs_resolution
+		firsfts_interp = scinterp.interp1d(
 				wavelength_array,
 				divided)(degrade_wave)
 		pfc = scinterp.interp1d(
 				degrade_wave,
-				rolling_median(firsFTS_interp,rolling_window))(wavelength_array)
+				_rolling_median(firsfts_interp, rolling_window))(wavelength_array)
 		pfc = pfc / np.nanmax(pfc)
 		if firs_data.shape[0] == 4:
-			firs_data_corr[0,:] = firs_data[0,:] / pfc
-			firs_data_corr[1,:] = firs_data[1,:] / firs_data_corr[0,:]
-			firs_data_corr[2,:] = firs_data[2,:] / firs_data_corr[0,:]
-			firs_data_corr[4,:] = firs_data[3,:] / firs_data_corr[0,:]
-			prefilter_corrections[:] = pfc
+			firs_data_corr[0, :] = firs_data[0, :] / pfc
+			firs_data_corr[1, :] = firs_data[1, :] / firs_data_corr[0, :]
+			firs_data_corr[2, :] = firs_data[2, :] / firs_data_corr[0, :]
+			firs_data_corr[4, :] = firs_data[3, :] / firs_data_corr[0, :]
+			slit_pfc = pfc
 		else:
-			firs_data_corr[:,0] = firs_data[:,0] / pfc
-			firs_data_corr[:,1] = firs_data[:,1] / firs_data_corr[:,0]
-			firs_data_corr[:,2] = firs_data[:,2] / firs_data_corr[:,0]
-			firs_data_corr[:,3] = firs_data[:,3] / firs_data_corr[:,0]
-			prefilter_corrections[:] = pfc
+			firs_data_corr[:, 0] = firs_data[:, 0] / pfc
+			firs_data_corr[:, 1] = firs_data[:, 1] / firs_data_corr[:, 0]
+			firs_data_corr[:, 2] = firs_data[:, 2] / firs_data_corr[:, 0]
+			firs_data_corr[:, 3] = firs_data[:, 3] / firs_data_corr[:, 0]
+			slit_pfc = pfc
 	else:
+		# Creating a pfc for each slit position is quite wasteful.
+		# Instead, we'll take the mean of the n_slits/8 brightest slits, and create the pfc from that.
+		if firs_data.shape[0] < 16:
+			mean_slit = np.nanmean(firs_data[:, 0, :, :], axis=0)
+		else:
+			slit_sums = np.nansum(firs_data[:, 0, :, :], axis=(1, 2))
+			slit_brightness_argsort = np.argsort(slit_sums)
+			n_brightest = int(firs_data.shape[0]/8)
+			bright_args = slit_brightness_argsort[-n_brightest:]
+			mean_slit = np.zeros((firs_data.shape[2], firs_data.shape[3]))
+			for i in bright_args:
+				mean_slit += firs_data[i, 0, :, :]
+			mean_slit = mean_slit / len(bright_args)
+
+		slit_pfc = np.zeros(mean_slit.shape)
+		for i in range(mean_slit.shape[0]):
+			divided = mean_slit[i, :] / fts_spec_in_firs_resolution
+			firsfts_interp = scinterp.interp1d(
+				wavelength_array,
+				divided)(degrade_wave)
+			pfc = scinterp.interp1d(
+				degrade_wave,
+				_rolling_median(firsfts_interp, rolling_window))(wavelength_array)
+			pfc = pfc / np.nanmax(pfc)
+			slit_pfc[i, :] = pfc
+
 		for i in range(firs_data.shape[0]):
 			for j in range(firs_data.shape[2]):
-				divided = firs_data[i,0,j,:] / fts_spec_in_FIRS_resolution
-				firsFTS_interp = scinterp.interp1d(
-						wavelength_array,
-						divided)(degrade_wave)
-				pfc = scinterp.interp1d(
-						degrade_wave,
-						rolling_median(firsFTS_interp,rolling_window))(wavelength_array)
-				pfc = pfc / np.nanmax(pfc)
-				firs_data_corr[i,0,j,:] = firs_data[i,0,j,:] / pfc
-				firs_data_corr[i,1,j,:] = firs_data[i,1,j,:] / firs_data_corr[i,0,j,:]
-				firs_data_corr[i,2,j,:] = firs_data[i,2,j,:] / firs_data_corr[i,0,j,:]
-				firs_data_corr[i,3,j,:] = firs_data[i,3,j,:] / firs_data_corr[i,0,j,:]
-				prefilter_corrections[i,j,:] = pfc
+				firs_data_corr[i, 0, j, :] = firs_data[i, 0, j, :] / slit_pfc[j, :]
+				qtmp = firs_data[i, 1, j, :] / firs_data_corr[i, 0, j, :]
+				firs_data_corr[i, 1, j, :] = linear_spectral_tilt_correction(wavelength_array, qtmp)
+				utmp = firs_data[i, 2, j, :] / firs_data_corr[i, 0, j, :]
+				firs_data_corr[i, 2, j, :] = linear_spectral_tilt_correction(wavelength_array, utmp)
+				vtmp = firs_data[i, 3, j, :] / firs_data_corr[i, 0, j, :]
+				firs_data_corr[i, 3, j, :] = linear_spectral_tilt_correction(wavelength_array, vtmp)
 	if return_pfcs:
-		return firs_data_corr,prefilter_corrections
+		return firs_data_corr, slit_pfc
 	else:
 		return firs_data_corr
 
 
+def firs_fringe_template(flat_dat_file, lopass_cutoff=0.4):
+	"""Creating templates of fringes in QUV.
+	We do this with a flat file from the same day that's gone through the FIRS reduction pipeline.
+	This flat is then wavelength-calibrated and prefilter-corrected using the above suite of functions.
+	Once corrected for prefilter, the rolling median is taken for each position along the averaged slit.
+	This gets rid of hot pixels. Then, a linear fit is performed for each position along the averaged slit to remove the
+	spectral tilt. Now corrected for prefilter, hot pixels, and tilt, the slit-position averaged flat field is subjected
+	to a Fourier low-pass filter with a cutoff of 1/lopass_cutoff angstroms (i.e.,periodicities longer than
+	lopass_cutoff angstroms). This provides an image of the fringes. This fringe image is returned, and can be
+	subtracted from QUV data that have been prefilter and tilt corrected.
+
+	Parameters:
+	-----------
+	flat_dat_file : str
+		Filename of the binary .dat file corresponding to a flat field that's been through the FIRS reduction pipeline.
+	flat_sav_file : str
+		Filename of the IDL .sav file containing the metadata of flat_dat_file
+	lopass_cutoff : float, optional
+		The frequency cutoff for making the low-pass Fourier fringe filter.
+
+	Returns:
+	--------
+	quv_fringe_image : array-like
+		Array of shape (3,ny,nlambda) containing the fringe images for Stokes QUV. Subtract from the slit image to
+		correct for fringes.
+	"""
+
+	flat_map = read_firs(flat_dat_file)
+	wavelength_array = firs_wavelength_cal(np.nanmean(flat_map[:, 0, 100:400, :], axis=(0, 1)))
+	flat_map = np.nanmean(firs_prefilter_correction(flat_map, wavelength_array), axis=0)
+	fftfreqs = np.fft.fftfreq(len(wavelength_array), wavelength_array[1]-wavelength_array[0])
+
+	ft_cut1 = fftfreqs >= lopass_cutoff
+	ft_cut2 = fftfreqs <= -lopass_cutoff
+	quv_fringe_image = np.zeros((3, flat_map.shape[1], flat_map.shape[2]))
+	for i in range(flat_map.shape[1]):
+		for j in range(1, 4):
+			quv_ft = np.fft.fft(_rolling_median(flat_map[j, i, :], 16))
+			quv_ft[ft_cut1] = 0
+			quv_ft[ft_cut2] = 0
+			quv_fringe_image[j-1, i, :] = np.real(np.fft.ifft(quv_ft))
+	return wavelength_array, quv_fringe_image
+
+
+def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5):
+	"""Applies fringe correction to FIRS map by calling the fringe template function, determining any difference in the
+	wavelength regimes, and any offset in the spectrum.
+
+	Parameters:
+	-----------
+	map_data : array-like
+		The 4d firs image cube
+	map_waves : array-like
+		The corresponding spectral axis
+	flat_data_file : str
+		Path to a flat file that has been through the FIRS pipeline
+	lopass : float, optional
+		The frequency cutoff to be passed to the fringe template function
+
+	Returns:
+	--------
+	fringe_corrected_map : array-like
+		A map that has been (hopefully) corrected for spectral fringeing.
+
+	"""
+
+	flat_waves, fringe_template = firs_fringe_template(flat_data_file, lopass_cutoff=lopass)
+	if len(flat_waves) != len(map_waves):
+		fringe_template = scinterp.interp1d(
+			flat_waves,
+			fringe_template,
+			axis=-1,
+			bounds_error=False,
+			fill_value='extrapolate'
+		)(map_waves)
+
+	fringe_corrected_map = np.zeros(map_data.shape)
+
+	fringe_corrected_map[:, 0, :, :] = map_data[:, 0, :, :]
+
+	for i in range(fringe_corrected_map.shape[0]):
+		for j in range(3):
+			for k in range(fringe_corrected_map.shape[2]):
+				map_med = np.nanmedian(map_data[i, j+1, k, :50])
+				fringe_med = np.nanmedian(fringe_template[j, k, :50])
+
+				corr_factor = fringe_med - map_med
+
+				fringe_corr = fringe_template[j, k, :] - corr_factor
+
+				fringe_corrected_map[i, j+1, k, :] = map_data[i, j+1, k, :] - fringe_corr
+
+	return fringe_corrected_map
+
+
+def firs_coordinate_conversion(raw_file):
+	"""Converts telescope Stonyhurst to Helioprojective Coordinates.
+	I should be able to do this with the Alt-Az coordinates in the sav file, but it doesn't appear to work out.
+	Instead, we need a raw firs file, as this contains the DST_SLAT and DST_SLNG keywords.
+
+	Parameters:
+	-----------
+	raw_file : str
+		Path to a raw firs fits file
+
+	Returns:
+	--------
+	helio_coord : SkyCoord object
+		astropy skycoord object containing the Helioprojective coordinates of the observation series
+	rotation_angle : float
+		Guider angle minus the 13.3 degree offset
+	date: str
+		String with the date from header. Used elsewhere.
+	"""
+
+	raw_hdr = fits.open(raw_file)[0].header
+	stony_lat = raw_hdr['DST_SLAT']
+	stony_lon = raw_hdr['DST_SLNG']
+	rotation_angle = raw_hdr['DST_GDRN'] - 13.3  # 13.3 is the offset of the DST guider head to solar north
+	# There may still be 90 degree rotations, or other translations
+	obstime = raw_hdr['OBS_STAR']
+	date = raw_hdr['DATE_OBS'].replace('/', '-')
+	stony_coord = SkyCoord(
+		stony_lon*u.deg,
+		stony_lat*u.deg,
+		frame=frames.HeliographicStonyhurst,
+		observer='earth',
+		obstime=obstime
+	)
+
+	helio_coord = stony_coord.transform_to(frames.Helioprojective)
+	return helio_coord, rotation_angle, date
+
+
+def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation, date, dx, dy, exptime, coadd):
+	"""Helper function that constructs HDUList for packaging to a final level 1.5 data product
+	Parameters:
+	-----------
+	firs_data : array-like
+		The fringe, tilt, prefilter corrected FIRS data 4d object
+	firs_lambda : array-like
+		The array of wavelengths for FIRS
+	meta_file : str
+		The .sav file containing FIRS metadata
+	coordinates : astropy.coordinates.SkyCoord object
+		SkyCoord object with XCEN and YCEN
+	rotation : float
+		Rotation angle relative to solar-north
+	date : str
+		str containing the obs date (no time)
+	dx : float
+		dx element in arcsec
+	dy : float
+		dy element in arcsec
+	exptime : float
+		time for single exposure
+	coadd : float
+		number of coadds to determine total exptime.
+
+	Returns:
+	--------
+	hdulist : astropy.io.fits.HDUList object
+		Nicely formatted HDUList for writing to disk
+	"""
+
+	meta_info = readsav(meta_file)
+	t0 = np.datetime64(date) + np.timedelta64(
+		int(1000 * 60 * 60 * meta_info['ttime'][0]), 'ms'
+	)
+	t1 = np.datetime64(date) + np.timedelta64(
+		int(1000 * 60 * 60 * meta_info['ttime'][-1]), 'ms'
+	)
+
+	ext0 = fits.PrimaryHDU()
+	ext0.header['DATE'] = (np.datetime64('now').astype(str), 'File created')
+	ext0.header['TELESCOP'] = 'DST'
+	ext0.header['INSTRUME'] = 'FIRS'
+	ext0.header['DATA_LEV'] = 1.5
+	ext0.header['DATE_OBS'] = t0.astype(str)
+	ext0.header['STARTOBS'] = t0.astype(str)
+	ext0.header['DATE_END'] = t1.astype(str)
+	ext0.header['ENDOBS'] = t1.astype(str)
+	ext0.header['BTYPE'] = 'Intensity'
+	ext0.header['BUNIT'] = 'Corrected DN'
+	ext0.header['FOVX'] = (firs_data.shape[0] * dx, 'arcsec')
+	ext0.header['FOVY'] = (firs_data.shape[2] * dy, 'arcsec')
+	ext0.header['XCEN'] = (coordinates.Tx.value, 'arcsec')
+	ext0.header['YCEN'] = (coordinates.Ty.value, 'arcsec')
+	ext0.header['ROT'] = rotation
+	ext0.header['EXPTIME'] = (exptime, 'ms per coadd')
+	ext0.header['XPOSUR'] = (exptime*coadd, 'ms')
+	ext0.header['NSUMEXP'] = (coadd, 'coadds')
+
+	ext1 = fits.ImageHDU(firs_data[:, 0, :, :])
+	ext1.header['EXTNAME'] = 'Stokes-I'
+	ext1.header['CDELT1'] = (dx, 'arcsec')
+	ext1.header['CDELT2'] = (dy, 'arcsec')
+	ext1.header['CDELT3'] = (firs_lambda[1] - firs_lambda[0], 'Angstom')
+	ext1.header['CTYPE1'] = 'HPLT-TAN'
+	ext1.header['CTYPE2'] = 'HPLT-TAN'
+	ext1.header['CTYPE3'] = 'WAVE'
+	ext1.header['CUNIT1'] = 'arcsec'
+	ext1.header['CUNIT2'] = 'arcsec'
+	ext1.header['CUNIT3'] = 'Angstrom'
+	ext1.header['CRVAL1'] = coordinates.Tx.value
+	ext1.header['CRVAL2'] = coordinates.Ty.value
+	ext1.header['CRVAL3'] = firs_lambda[0]
+	ext1.header['CRPIX1'] = firs_data.shape[0]/2
+	ext1.header['CRPIX2'] = firs_data.shape[2]/2
+	ext1.header['CRPIX3'] = 1
+	ext1.header['CROTAN'] = rotation
+
+	ext2 = fits.ImageHDU(firs_data[:, 1, :, :])
+	ext2.header['EXTNAME'] = 'Stokes-Q'
+	ext2.header['CDELT1'] = (dx, 'arcsec')
+	ext2.header['CDELT2'] = (dy, 'arcsec')
+	ext2.header['CDELT3'] = (firs_lambda[1] - firs_lambda[0], 'Angstom')
+	ext2.header['CTYPE1'] = 'HPLT-TAN'
+	ext2.header['CTYPE2'] = 'HPLT-TAN'
+	ext2.header['CTYPE3'] = 'WAVE'
+	ext2.header['CUNIT1'] = 'arcsec'
+	ext2.header['CUNIT2'] = 'arcsec'
+	ext2.header['CUNIT3'] = 'Angstrom'
+	ext2.header['CRVAL1'] = coordinates.Tx.value
+	ext2.header['CRVAL2'] = coordinates.Ty.value
+	ext2.header['CRVAL3'] = firs_lambda[0]
+	ext2.header['CRPIX1'] = firs_data.shape[0] / 2
+	ext2.header['CRPIX2'] = firs_data.shape[2] / 2
+	ext2.header['CRPIX3'] = 1
+	ext2.header['CROTAN'] = rotation
+
+	ext3 = fits.ImageHDU(firs_data[:, 2, :, :])
+	ext3.header['EXTNAME'] = 'Stokes-U'
+	ext3.header['CDELT1'] = (dx, 'arcsec')
+	ext3.header['CDELT2'] = (dy, 'arcsec')
+	ext3.header['CDELT3'] = (firs_lambda[1] - firs_lambda[0], 'Angstom')
+	ext3.header['CTYPE1'] = 'HPLT-TAN'
+	ext3.header['CTYPE2'] = 'HPLT-TAN'
+	ext3.header['CTYPE3'] = 'WAVE'
+	ext3.header['CUNIT1'] = 'arcsec'
+	ext3.header['CUNIT2'] = 'arcsec'
+	ext3.header['CUNIT3'] = 'Angstrom'
+	ext3.header['CRVAL1'] = coordinates.Tx.value
+	ext3.header['CRVAL2'] = coordinates.Ty.value
+	ext3.header['CRVAL3'] = firs_lambda[0]
+	ext3.header['CRPIX1'] = firs_data.shape[0] / 2
+	ext3.header['CRPIX2'] = firs_data.shape[2] / 2
+	ext3.header['CRPIX3'] = 1
+	ext3.header['CROTAN'] = rotation
+
+	ext4 = fits.ImageHDU(firs_data[:, 3, :, :])
+	ext4.header['EXTNAME'] = 'Stokes-V'
+	ext4.header['CDELT1'] = (dx, 'arcsec')
+	ext4.header['CDELT2'] = (dy, 'arcsec')
+	ext4.header['CDELT3'] = (firs_lambda[1] - firs_lambda[0], 'Angstom')
+	ext4.header['CTYPE1'] = 'HPLT-TAN'
+	ext4.header['CTYPE2'] = 'HPLT-TAN'
+	ext4.header['CTYPE3'] = 'WAVE'
+	ext4.header['CUNIT1'] = 'arcsec'
+	ext4.header['CUNIT2'] = 'arcsec'
+	ext4.header['CUNIT3'] = 'Angstrom'
+	ext4.header['CRVAL1'] = coordinates.Tx.value
+	ext4.header['CRVAL2'] = coordinates.Ty.value
+	ext4.header['CRVAL3'] = firs_lambda[0]
+	ext4.header['CRPIX1'] = firs_data.shape[0] / 2
+	ext4.header['CRPIX2'] = firs_data.shape[2] / 2
+	ext4.header['CRPIX3'] = 1
+	ext4.header['CROTAN'] = rotation
+
+	ext5 = fits.ImageHDU(firs_lambda)
+	ext5.header['EXTNAME'] = 'lambda-coordinate'
+	ext5.header['BTYPE'] = 'lambda axis'
+	ext5.header['BUNIT'] = '[AA]'
+
+	ext6 = fits.ImageHDU(60*60*meta_info['ttime'])
+	ext6.header['EXTNAME'] = 'time-coordinate'
+	ext6.header['BTYPE'] = 'time axis'
+	ext6.header['BUNIT'] = '[s]'
+
+	hdulist = fits.HDUList([ext0, ext1, ext2, ext3, ext4, ext5, ext6])
+
+	return hdulist
+
+
+def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0.15, exptime=125, coadd=10):
+	"""This function converts FIRS .dat files to level 1.5 fits files with a wavelength array, time array, and corrected
+	for fringeing. You will require a map containing a flat field that has been processed as a science map by the FIRS
+	IDL pipeline.
+
+	Parameters:
+	-----------
+	firs_map_fname : str
+		Path to a FIRS science map at level-1 (post-IDL)
+	flat_map_fname : str
+		Path to a FIRS flat map processed by the IDL pipeline as a science map
+	raw_file : str
+		Path to a raw FIRS fits file (for header information)
+	outname : str
+		The pattern used to save the FIRS map as a fits file.
+	dx : float
+		From the slit spacing, default to 0.3 arcsec/slit_pos
+	dy : float
+		From math, default to 0.15 arcsec/pix
+	exptime : float
+		Exposure time, default to 125 ms
+	coadd : float
+		Number of coadds, default to 10 for standard obs modes.
+
+	Returns:
+	--------
+	None, but it writes a fits file.
+	"""
+
+	# L1 data
+	firs_data = read_firs(firs_map_fname)
+
+	# Wave Cal
+	firs_waves = firs_wavelength_cal(
+		np.nanmean(firs_data[:, 0, 100:400, :], axis=(0, 1))
+	)
+
+	# Prefilter Cal
+	firs_data = firs_prefilter_correction(firs_data, firs_waves)
+
+	# Fringe Cal
+	firs_data = firs_fringecorr(firs_data, firs_waves, flat_map_fname)
+
+	coordinates, crotan, date = firs_coordinate_conversion(raw_file)
+
+	hdulist = firs_construct_hdu(
+		firs_data,
+		firs_waves,
+		firs_map_fname + '.sav',
+		coordinates,
+		crotan,
+		date,
+		dx,
+		dy,
+		exptime,
+		coadd
+	)
+
+	hdulist.writeto(outname)
