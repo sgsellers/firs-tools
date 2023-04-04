@@ -10,7 +10,7 @@ from astropy.coordinates import SkyCoord
 import astropy.io.fits as fits
 from sunpy.coordinates import frames
 from importlib import resources
-from . import FTS_atlas
+import FTS_atlas
 
 
 # NOTE: IMPORTANT
