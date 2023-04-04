@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import RectangleSelector, SpanSelector
 from scipy.io import readsav
 import scipy.interpolate as scinterp
-import sean_tools as st
 from scipy.optimize import curve_fit
 import numpy.polynomial.polynomial as npoly
 import astropy.units as u
@@ -405,7 +404,7 @@ def firs_wavelength_cal(sample_int_spectrum, wavelims=(10818, 10858)):
 		Array corresponding to sample_int_spectrum with the wavelength corresponding to each point.
 	"""
 
-	fts_w, fts_i = st.FTS_window(wavelims[0], wavelims[1])
+	fts_w, fts_i = _fts_window(wavelims[0], wavelims[1])
 
 	print("Select recognizable, gaussian-esque lines from your FIRS spectrum and the reference FTS spectrum")
 	line_exts = select_spec_region(sample_int_spectrum, fts_i)
@@ -423,7 +422,7 @@ def firs_wavelength_cal(sample_int_spectrum, wavelims=(10818, 10858)):
 	line2_fts_i = fts_i[int(line2_fts[0]):int(line2_fts[1])]
 
 	line1_firs_fit, _ = curve_fit(
-		st.gaussian,
+		_gaussian,
 		np.arange(len(line1_firs_i)),
 		line1_firs_i,
 		p0=[
@@ -434,7 +433,7 @@ def firs_wavelength_cal(sample_int_spectrum, wavelims=(10818, 10858)):
 	)
 
 	line2_firs_fit, _ = curve_fit(
-		st.gaussian,
+		_gaussian,
 		np.arange(len(line2_firs_i)),
 		line2_firs_i,
 		p0=[
@@ -445,7 +444,7 @@ def firs_wavelength_cal(sample_int_spectrum, wavelims=(10818, 10858)):
 	)
 
 	line1_fts_fit, _ = curve_fit(
-		st.gaussian,
+		_gaussian,
 		np.arange(len(line1_fts_i)),
 		line1_fts_i,
 		p0=[
@@ -456,7 +455,7 @@ def firs_wavelength_cal(sample_int_spectrum, wavelims=(10818, 10858)):
 	)
 
 	line2_fts_fit, _ = curve_fit(
-		st.gaussian,
+		_gaussian,
 		np.arange(len(line2_fts_i)),
 		line2_fts_i,
 		p0=[
@@ -535,7 +534,7 @@ def firs_prefilter_correction(firs_data, wavelength_array, degrade_to=50, rollin
 		An array of the calculated prefilter corrections. For a 4D data cube, this is for the average slit.
 	"""
 
-	fts_wave, fts_spec = st.FTS_window(wavelength_array[0], wavelength_array[-1])
+	fts_wave, fts_spec = _fts_window(wavelength_array[0], wavelength_array[-1])
 	fts_spec_in_firs_resolution = scinterp.interp1d(fts_wave, fts_spec)(wavelength_array)
 	degrade_wave = np.linspace(wavelength_array[0], wavelength_array[-1], num=degrade_to)
 	firs_data_corr = np.zeros(firs_data.shape)
