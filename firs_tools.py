@@ -200,7 +200,7 @@ def _correct_datetimes(datetime):
 	dst_end = np.datetime64(year.astype(str) + "-11-05 00:00")
 
 	if (datetime >= dst_start) & (datetime <= dst_end):
-		offset = np.timedelta64(8, 'h')
+		offset = np.timedelta64(6, 'h')
 	else:
 		offset = np.timedelta64(7, 'h')
 
