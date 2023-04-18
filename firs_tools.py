@@ -178,6 +178,35 @@ def _find_nearest(array, value):
 	return idx
 
 
+def _correct_datetimes(datetime):
+	"""Unfortunately, FIRS for some ungodly reason doesn't record its timestamps in UTC.
+	Rather, it records in local time. This is irritating.
+	This function returns the offset in hours between local and UTC
+
+	Parameters:
+	-----------
+	datetime : numpy datetime64
+		Reference datetime object
+
+	Returns:
+	--------
+	offset : float
+		Offset in hours between local and UTC
+	"""
+
+	year = datetime.astype('datetime64[Y]')
+
+	dst_start = np.datetime64(year.astype(str) + "-03-12 00:00")
+	dst_end = np.datetime64(year.astype(str) + "-11-05 00:00")
+
+	if (datetime >= dst_start) & (datetime <= dst_end):
+		offset = np.timedelta64(8, 'h')
+	else:
+		offset = np.timedelta64(7, 'h')
+
+	return offset
+
+
 def read_firs(firs_file):
 	"""Simple routine to read FIRS binary file into numpy array for ease of use.
 	Assumes a .sav file of the same name in the same location as firs_file
@@ -784,6 +813,11 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
 		int(1000 * 60 * 60 * meta_info['ttime'][-1]), 'ms'
 	)
 
+	utc_offset = _correct_datetimes(t0)
+
+	t0 += utc_offset
+	t1 += utc_offset
+
 	ext0 = fits.PrimaryHDU()
 	ext0.header['DATE'] = (np.datetime64('now').astype(str), 'File created')
 	ext0.header['TELESCOP'] = 'DST'
@@ -885,7 +919,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
 	ext5.header['BTYPE'] = 'lambda axis'
 	ext5.header['BUNIT'] = '[AA]'
 
-	ext6 = fits.ImageHDU(60*60*meta_info['ttime'])
+	ext6 = fits.ImageHDU(60*60*meta_info['ttime'] + utc_offset.astype(float))
 	ext6.header['EXTNAME'] = 'time-coordinate'
 	ext6.header['BTYPE'] = 'time axis'
 	ext6.header['BUNIT'] = '[s]'
