@@ -516,6 +516,98 @@ def firs_wavelength_cal(sample_int_spectrum, wavelims=(10818, 10858)):
 	return wavelength_array
 
 
+# noinspection PyTupleAssignmentBalance
+def firs_wavelength_cal_poly(sample_int_spectrum, wavelims=(10818, 10858)):
+	"""Calculates the FIRS wavelength array from comparison to the FTS atlas.
+
+	2023-04-04: Rewritten ground up for simplicity and ease of use.
+
+	Parameters:
+	-----------
+	sample_int_spectrum : array-like
+		1-D Array of intensity for wavelength calibration. Normalize it first, please.
+	wavelims : list
+		Upper and lower wavelength bounds for FTS atlas selection.
+	Returns:
+	--------
+	wavelength_array : array-like
+		Array corresponding to sample_int_spectrum with the wavelength corresponding to each point.
+	"""
+
+	fts_w, fts_i = _fts_window(wavelims[0], wavelims[1])
+
+	print("Select recognizable, line cores from your FIRS spectrum and the reference FTS spectrum")
+	line_exts = select_spec_region(sample_int_spectrum, fts_i)
+
+	line1_exts = line_exts[0]
+	line2_exts = line_exts[1]
+
+	line1_fts = line_exts[2]
+	line2_fts = line_exts[3]
+
+	line1_firs_i = sample_int_spectrum[int(line1_exts[0]):int(line1_exts[1])]
+	line2_firs_i = sample_int_spectrum[int(line2_exts[0]):int(line2_exts[1])]
+
+	line1_fts_i = fts_i[int(line1_fts[0]):int(line1_fts[1])]
+	line2_fts_i = fts_i[int(line2_fts[0]):int(line2_fts[1])]
+
+	line1_firs_coef = npoly.polyfit(
+		np.arange(len(line1_firs_i)),
+		line1_firs_i,
+		2
+	)
+
+	# X-coord of a vertex of a parabola = -b/2a
+	line1_firs_x = -line1_firs_coef[1]/(2 * line1_firs_coef[2])
+
+	line2_firs_coef = npoly.polyfit(
+		np.arange(len(line2_firs_i)),
+		line2_firs_i,
+		2
+	)
+
+	line2_firs_x = -line2_firs_coef[1]/(2 * line2_firs_coef[2])
+
+	line1_fts_coef = npoly.polyfit(
+		np.arange(len(line1_fts_i)),
+		line1_fts_i,
+		2
+	)
+
+	line1_fts_x = -line1_fts_coef[1]/(2 * line1_fts_coef[2])
+
+	line2_fts_coef = npoly.polyfit(
+		np.arange(len(line2_fts_i)),
+		line2_fts_i,
+		2
+	)
+
+	line2_fts_x = -line2_fts_coef[1]/(2 * line2_fts_coef[2])
+
+	line1_fts_wvl = scinterp.interp1d(
+		np.arange(len(fts_w[int(line1_fts[0]):int(line1_fts[1])])),
+		fts_w[int(line1_fts[0]):int(line1_fts[1])],
+		kind='linear'
+	)(line1_fts_x)
+
+	line2_fts_wvl = scinterp.interp1d(
+		np.arange(len(fts_w[int(line2_fts[0]):int(line2_fts[1])])),
+		fts_w[int(line2_fts[0]):int(line2_fts[1])],
+		kind='linear'
+	)(line2_fts_x)
+
+	line1_firs_center = line1_exts[0] + line1_firs_x
+	line2_firs_center = line2_exts[0] + line2_firs_x
+
+	angstrom_per_pixel = np.abs(line2_fts_wvl - line1_fts_wvl) / np.abs(line2_firs_center - line1_firs_center)
+
+	zero_wvl = line1_fts_wvl - (angstrom_per_pixel * line1_firs_center)
+
+	wavelength_array = (np.arange(0, len(sample_int_spectrum)) * angstrom_per_pixel) + zero_wvl
+
+	return wavelength_array
+
+
 def linear_spectral_tilt_correction(wave, spec):
 	"""Subtracts a 1st order polynomial from given wave and spec.
 
@@ -668,7 +760,7 @@ def firs_fringe_template(flat_dat_file, lopass_cutoff=0.4):
 	"""
 
 	flat_map = read_firs(flat_dat_file)
-	wavelength_array = firs_wavelength_cal(np.nanmean(flat_map[:, 0, 100:400, :], axis=(0, 1)))
+	wavelength_array = firs_wavelength_cal_poly(np.nanmean(flat_map[:, 0, 100:400, :], axis=(0, 1)))
 	flat_map = np.nanmean(firs_prefilter_correction(flat_map, wavelength_array), axis=0)
 	fftfreqs = np.fft.fftfreq(len(wavelength_array), wavelength_array[1]-wavelength_array[0])
 
@@ -962,7 +1054,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
 	firs_data = read_firs(firs_map_fname)
 
 	# Wave Cal
-	firs_waves = firs_wavelength_cal(
+	firs_waves = firs_wavelength_cal_poly(
 		np.nanmean(firs_data[:, 0, 100:400, :], axis=(0, 1))
 	)
 
