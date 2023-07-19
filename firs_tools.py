@@ -413,7 +413,7 @@ def select_spec_region(spectrum, reference_spectrum):
 		selector3.extents = (xmin3, xmax3)
 
 		xmin4, xmax4 = 2392, 2410
-		selector4.extents = (xmin34, xmax4)
+		selector4.extents = (xmin4, xmax4)
 	else:
 		xmin1, xmax1 = xdata[0], xdata[int(len(xdata)/8)]
 		selector1.extents = (xmin1, xmax1)
