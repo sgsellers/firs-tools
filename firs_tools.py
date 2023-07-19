@@ -349,7 +349,7 @@ def select_spec_region(spectrum, reference_spectrum):
 		indmin, indmax = np.searchsorted(xref, (xmin, xmax))
 		indmax = min(len(xref) - 1, indmax)
 
-	ax_dat.set_title(f"Click and drag to select a two regions in the top plot. \nSelect the same two below.")
+	ax_dat.set_title(f"Click and drag to select a two regions in the top plot. \nSelect the same two below. Close the window when done.")
 
 	selector1 = SpanSelector(
 		ax_dat,
@@ -400,15 +400,30 @@ def select_spec_region(spectrum, reference_spectrum):
 	selector3._selection_completed = True
 	selector4._selection_completed = True
 
-	xmin1, xmax1 = xdata[0], xdata[int(len(xdata)/8)]
-	selector1.extents = (xmin1, xmax1)
-	xmin2, xmax2 = xdata[int(7 * len(xdata) / 8)], xdata[-1]
-	selector2.extents = (xmin2, xmax2)
+	# Defaults. Can just close the window if this is fine
+	# Typically, FIRS 10830 data is ~1019 wavelength samples
+	# So if there's more than 900 points, it's safe ish to use these values
+	if len(xdata) > 900:
+		xmin1, xmax1 = 205, 218
+		selector1.extents = (xmin1, xmax1)
+		xmin2, xmax2 = 790, 798
+		selector2.extents = (xmin2, xmax2)
 
-	xmin3, xmax3 = xref[0], xref[int(len(xref) / 8)]
-	selector3.extents = (xmin3, xmax3)
-	xmin4, xmax4 = xref[int(7 * len(xref) / 8)], xref[-1]
-	selector4.extents = (xmin4, xmax4)
+		xmin3, xmax3 = 669, 690
+		selector3.extents = (xmin3, xmax3)
+
+		xmin4, xmax4 = 2392, 2410
+		selector4.extents = (xmin34, xmax4)
+	else:
+		xmin1, xmax1 = xdata[0], xdata[int(len(xdata)/8)]
+		selector1.extents = (xmin1, xmax1)
+		xmin2, xmax2 = xdata[int(7 * len(xdata) / 8)], xdata[-1]
+		selector2.extents = (xmin2, xmax2)
+
+		xmin3, xmax3 = xref[0], xref[int(len(xref) / 8)]
+		selector3.extents = (xmin3, xmax3)
+		xmin4, xmax4 = xref[int(7 * len(xref) / 8)], xref[-1]
+		selector4.extents = (xmin4, xmax4)
 
 	plt.show()
 
