@@ -408,7 +408,7 @@ def select_spec_region(spectrum, reference_spectrum):
 		xcen1 = np.where(spectrum[xmin1:xmax1+1] == np.nanmin(spectrum[xmin1:xmax1+1]))[0][0]
 		selector1.extents = (xmin1 + xcen1 - 6, xmin1 + xcen1 + 6)
 
-		xmin2, xmax2 = 790, 798
+		xmin2, xmax2 = 788, 800
 		xcen2 = np.where(spectrum[xmin2:xmax2 + 1] == np.nanmin(spectrum[xmin2:xmax2 + 1]))[0][0]
 		selector2.extents = (xmin2 + xcen2 - 4, xmin2 + xcen2 + 4)
 
