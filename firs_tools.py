@@ -948,7 +948,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
 	ext0.header['XPOSUR'] = (exptime*coadd, 'ms')
 	ext0.header['NSUMEXP'] = (coadd, 'coadds')
 
-	ext1 = fits.ImageHDU(firs_data[:, 0, :, :])
+	ext1 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 0, :, :])))
 	ext1.header['EXTNAME'] = 'Stokes-I'
 	ext1.header['CDELT1'] = (dx, 'arcsec')
 	ext1.header['CDELT2'] = (dy, 'arcsec')
@@ -967,7 +967,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
 	ext1.header['CRPIX3'] = 1
 	ext1.header['CROTAN'] = rotation
 
-	ext2 = fits.ImageHDU(firs_data[:, 1, :, :])
+	ext2 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 1, :, :])))
 	ext2.header['EXTNAME'] = 'Stokes-Q'
 	ext2.header['CDELT1'] = (dx, 'arcsec')
 	ext2.header['CDELT2'] = (dy, 'arcsec')
@@ -986,7 +986,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
 	ext2.header['CRPIX3'] = 1
 	ext2.header['CROTAN'] = rotation
 
-	ext3 = fits.ImageHDU(firs_data[:, 2, :, :])
+	ext3 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 2, :, :])))
 	ext3.header['EXTNAME'] = 'Stokes-U'
 	ext3.header['CDELT1'] = (dx, 'arcsec')
 	ext3.header['CDELT2'] = (dy, 'arcsec')
@@ -1005,7 +1005,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
 	ext3.header['CRPIX3'] = 1
 	ext3.header['CROTAN'] = rotation
 
-	ext4 = fits.ImageHDU(firs_data[:, 3, :, :])
+	ext4 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 3, :, :])))
 	ext4.header['EXTNAME'] = 'Stokes-V'
 	ext4.header['CDELT1'] = (dx, 'arcsec')
 	ext4.header['CDELT2'] = (dy, 'arcsec')
