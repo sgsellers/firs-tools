@@ -1297,12 +1297,12 @@ def repackHazel(
 				paramArray = chromosphere[chParams[i]][:, 0, -1, 0].reshape(nx, ny)
 			if translation:
 				paramArray = np.flipud(np.rot90(paramArray))
-			paramArray = paramArray.reshape(1, nx, ny)
+			paramArray = paramArray.reshape(1, paramArray.shape[0], paramArray.shape[1])
 			columns.append(
 				fits.Column(
 					name=chParams[i],
 					format=str(int(nx*ny))+'D',
-					dim='('+str(nx)+","+str(ny)+")",
+					dim='('+str(paramArray.shape[1])+","+str(paramArray.shape[2])+")",
 					unit=chParamUnits[i],
 					array=paramArray
 				)
@@ -1391,7 +1391,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "I",
-						dim='(' + str(nx) + "," + str(ny) + ")",
+						dim='(' + str(fill.shape[1]) + "," + str(fill.shape[2]) + ")",
 						unit=phParamUnits[i],
 						array=fill
 					)
@@ -1404,7 +1404,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "I",
-						dim='(' + str(nx) + "," + str(ny) + ")",
+						dim='(' + str(fill.shape[1]) + "," + str(fill.shape[2]) + ")",
 						unit=phParamUnits[i],
 						array=fill
 					)
@@ -1430,7 +1430,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(nx) + "," + str(ny) + ")",
+						dim='(' + str(dummy_arr.shape[1]) + "," + str(dummy_arr.shape[2]) + ")",
 						unit=phParamUnits[i],
 						array=dummy_arr
 					)
@@ -1450,7 +1450,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(nx) + "," + str(ny) + ")",
+						dim='(' + str(dummy_err.shape[1]) + "," + str(dummy_err.shape[2]) + ")",
 						unit=phParamUnits[i],
 						array=dummy_err
 					)
@@ -1463,7 +1463,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(nx) + "," + str(ny) + ")",
+						dim='(' + str(colarr.shape[1]) + "," + str(colarr.shape[2]) + ")",
 						unit=phParamUnits[i],
 						array=np.transpose(
 							colarr,
@@ -1498,7 +1498,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(nx) + "," + str(ny) + ")",
+						dim='(' + str(dummy_err.shape[1]) + "," + str(dummy_err.shape[2]) + ")",
 						unit=phParamUnits[i],
 						array=dummy_err
 					)
@@ -1511,7 +1511,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(nx) + "," + str(ny) + ")",
+						dim='(' + str(colarr.shape[1]) + "," + str(colarr.shape[2]) + ")",
 						unit=phParamUnits[i],
 						array=np.transpose(
 							colarr,
