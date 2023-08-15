@@ -1300,7 +1300,7 @@ def repackHazel(
 			columns.append(paramArray.reshape(1, paramArray.shape[0], paramArray.shape[1]))
 
 		recarr = np.rec.fromarrays(columns, names=chParams)
-		ext = fits.BinTableHDU(recarr)
+		ext = fits.BinTableHDU.from_columns(fits.ColDefs(recarr))
 		ext.header['EXTNAME'] = ("CHROMOSPHERE", 'Fit chromospheric parameters from Hazel Inversions')
 		ext.header['LINE'] = ('He-I', 'He I 10830 [AA] Triple')
 		fitsHDUs.append(ext)
