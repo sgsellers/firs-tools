@@ -1411,18 +1411,36 @@ def repackHazel(
 					)
 				)
 		else:
-			columns.append(
-				fits.Column(
-					name=phParams[i],
-					format=str(int(nx * ny)) + "D",
-					dim='(' + str(nx) + "," + str(ny) + ")",
-					unit=phParamUnits[i],
-					array=np.transpose(
-						photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau)),
-						(2, 0, 1)
+			nodeArr = photosphere[phParams[i].replace("err", "nodes")][:, 0, -1].reshape(nx, ny)
+			nodeList = nodeArr[0, 0]
+			while len(nodeList) == 0:
+				nodeList = nodeArr[
+					np.random.randint(0, nx),
+					np.random.randint(0, ny)
+				]
+			if (len(nodeList) == 1) & (np.isnan(nodeList[0])):
+				columns.append(
+					fits.Column(
+						name=phParams[i],
+						format=str(int(nx * ny)) + "I",
+						dim='(' + str(nx) + "," + str(ny) + ")",
+						unit=phParamUnits[i],
+						array=np.zeros((len(logTau), nx, ny)) + photosphere[phParams[i]][0, 0, -1, 0]
 					)
 				)
-			)
+			else:
+				columns.append(
+					fits.Column(
+						name=phParams[i],
+						format=str(int(nx * ny)) + "D",
+						dim='(' + str(nx) + "," + str(ny) + ")",
+						unit=phParamUnits[i],
+						array=np.transpose(
+							photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau)),
+							(2, 0, 1)
+						)
+					)
+				)
 	fitsHDUs.append(
 		fits.BinTableHDU.from_columns(
 			columns
