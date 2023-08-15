@@ -1411,7 +1411,7 @@ def repackHazel(
 					)
 				)
 		else:
-			nodeArr = photosphere[phParams[i].replace("err", "nodes")][:, 0, -1].reshape(nx, ny)
+			nodeArr = photosphere[phParams[i] + "_nodes"][:, 0, -1].reshape(nx, ny)
 			nodeList = nodeArr[0, 0]
 			while len(nodeList) == 0:
 				nodeList = nodeArr[
