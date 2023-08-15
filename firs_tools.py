@@ -1286,12 +1286,12 @@ def repackHazel(
 		columns = []
 		for i in range(len(chParams)):
 			if 'err' in chParams[i]:
-				paramArray = np.zeros((1, nx, ny))
+				paramArray = np.zeros((nx, ny))
 				eArray = chromosphere[chParams[i]][:, 0, -1].reshape(nx, ny)
 				for x in range(eArray.shape[0]):
 					for y in range(eArray.shape[1]):
 						if len(eArray[x, y]) != 0:
-							paramArray[0, x, y] = eArray[x, y]
+							paramArray[x, y] = eArray[x, y]
 
 			else:
 				paramArray = chromosphere[chParams[i]][:, 0, -1, 0].reshape(nx, ny)
