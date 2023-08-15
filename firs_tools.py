@@ -1297,7 +1297,7 @@ def repackHazel(
 				paramArray = chromosphere[chParams[i]][:, 0, -1, 0].reshape(nx, ny)
 			if translation:
 				paramArray = np.flipud(np.rot90(paramArray))
-			columns.append(paramArray.reshape(1, paramArray.shape[0], paramArray.shape[1]))
+			columns.append(paramArray.reshape(paramArray.shape[0], paramArray.shape[1]))
 
 		recarr = np.rec.fromarrays(columns, names=chParams)
 		ext = fits.BinTableHDU.from_columns(fits.ColDefs(recarr))
