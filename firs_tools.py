@@ -1224,6 +1224,7 @@ def repackHazel(
 		'Kelvin', 'Kelvin',
 		'km/s', 'km/s',
 		'km/s', 'km/s',
+		'km/s', 'km/s',
 		'FillFactor', 'FillFactor'
 	]
 
