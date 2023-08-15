@@ -1283,13 +1283,18 @@ def repackHazel(
 		for i in range(len(chParams)):
 			columns = []
 			if 'err' in chParams[i]:
-				paramArray = chromosphere[chParams[i]][:, 0, -1].reshape(nx, ny)
+				paramArray = np.zeros(1, nx, ny)
+				eArray = chromosphere[chParams[i]][:, 0, -1].reshape(nx, ny)
+				for x in range(eArray.shape[0]):
+					for y in range(eArray.shape[1]):
+						if len(eArray[x, y]) != 0:
+							paramArray[0, x, y] = eArray[x, y]
+
 			else:
 				paramArray = chromosphere[chParams[i]][:, 0, -1, 0].reshape(nx, ny)
 			if translation:
 				paramArray = np.flipud(np.rot90(paramArray))
 			paramArray = paramArray.reshape(1, nx, ny)
-			print(paramArray.dtype)
 			columns.append(
 				fits.Column(
 					name=chParams[i],
