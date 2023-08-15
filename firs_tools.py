@@ -1385,7 +1385,7 @@ def repackHazel(
 			if 'err' in phParams[i]:
 				fill = np.zeros((len(logTau), nx, ny))
 				if translation:
-					fill = np.flipud(np.rot90(fill, axes=(1, 2)), axes=(1, 2))
+					fill = np.flip(np.rot90(fill, axes=(1, 2)), axis=1)
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1398,7 +1398,7 @@ def repackHazel(
 			else:
 				fill = np.zeros((len(logTau), nx, ny)) + photosphere[phParams[i]][0, 0, -1, 0]
 				if translation:
-					fill = np.flipud(np.rot90(fill, axes=(1, 2)), axes=(1, 2))
+					fill = np.flip(np.rot90(fill, axes=(1, 2)), axis=1)
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1424,7 +1424,7 @@ def repackHazel(
 						else:
 							dummy_arr[:, x, y] = param[x, y]
 				if translation:
-					dummy_arr = np.flipud(np.rot90(dummy_arr, axes=(1, 2)), axes=(1, 2))
+					dummy_arr = np.flip(np.rot90(dummy_arr, axes=(1, 2)), axis=1)
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1444,7 +1444,7 @@ def repackHazel(
 						if len(err[x, y]) != 0:
 							dummy_err[:, x, y] = err[x, y]
 				if translation:
-					dummy_err = np.flipud(np.rot90(dummy_err, axes=(1, 2)), axes=(1, 2))
+					dummy_err = np.flip(np.rot90(dummy_err, axes=(1, 2)), axis=1)
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1490,7 +1490,7 @@ def repackHazel(
 								kind='linear'
 							)(np.arange(len(logTau)))
 				if translation:
-					dummy_err = np.flipud(np.rot90(dummy_err, axes=(1, 2)), axes=(1, 2))
+					dummy_err = np.flip(np.rot90(dummy_err, axes=(1, 2)), axis=1)
 				columns.append(
 					fits.Column(
 						name=phParams[i],
