@@ -1286,7 +1286,7 @@ def repackHazel(
 		columns = []
 		for i in range(len(chParams)):
 			if 'err' in chParams[i]:
-				paramArray = np.zeros((nx, ny))
+				paramArray = np.zeros((ny, nx))
 				eArray = chromosphere[chParams[i]][:, 0, -1].reshape(ny, nx)
 				for x in range(eArray.shape[0]):
 					for y in range(eArray.shape[1]):
@@ -1437,7 +1437,7 @@ def repackHazel(
 		# Case: Fit for, not vmac, but only one node. Param should be fine to cast, but err needs padded out.
 		elif nodeCount == 1:
 			if "err" in phParams[i]:
-				dummy_err = np.zeros((len(logTau), nx, ny))
+				dummy_err = np.zeros((len(logTau), ny, nx))
 				err = photosphere[phParams[i]][:, 0, -1].reshape(ny, nx)
 				for x in range(err.shape[0]):
 					for y in range(err.shape[1]):
@@ -1479,7 +1479,7 @@ def repackHazel(
 							np.random.randint(0, ny)
 						]
 					)
-				dummy_err = np.zeros((len(logTau), nx, ny))
+				dummy_err = np.zeros((len(logTau), ny, nx))
 				err = photosphere[phParams[i]][:, 0, -1].reshape(ny, nx)
 				for x in range(err.shape[0]):
 					for y in range(err.shape[1]):
