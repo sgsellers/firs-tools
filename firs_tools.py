@@ -1283,7 +1283,7 @@ def repackHazel(
 		for i in range(len(chParams)):
 			columns = []
 			if 'err' in chParams[i]:
-				paramArray = np.zeros(1, nx, ny)
+				paramArray = np.zeros((1, nx, ny))
 				eArray = chromosphere[chParams[i]][:, 0, -1].reshape(nx, ny)
 				for x in range(eArray.shape[0]):
 					for y in range(eArray.shape[1]):
