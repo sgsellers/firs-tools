@@ -1308,6 +1308,7 @@ def repackHazel(
 	hdulist = fits.HDUList(fitsHDUs)
 	hdulist.writeto(saveName)
 
+	return
 	# Now we pack our photospheric results.
 	# Unlike the chromospheres, there's an additional axis, the height profile.
 	# We'll use this profile as the length of each column in the fits table.
