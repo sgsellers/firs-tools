@@ -1297,14 +1297,13 @@ def repackHazel(
 				paramArray = chromosphere[chParams[i]][:, 0, -1, 0].reshape(nx, ny)
 			if translation:
 				paramArray = np.flipud(np.rot90(paramArray))
-			paramArray = paramArray.reshape(1, paramArray.shape[0], paramArray.shape[1])
 			columns.append(
 				fits.Column(
 					name=chParams[i],
 					format=str(int(nx*ny))+'D',
-					dim='('+str(paramArray.shape[1])+","+str(paramArray.shape[2])+")",
+					dim='('+str(paramArray.shape[0])+","+str(paramArray.shape[1])+")",
 					unit=chParamUnits[i],
-					array=paramArray
+					array=paramArray.reshape(1, paramArray.shape[0], paramArray.shape[1])
 				)
 			)
 		ext = fits.BinTableHDU.from_columns(columns)
@@ -1386,7 +1385,7 @@ def repackHazel(
 			if 'err' in phParams[i]:
 				fill = np.zeros((len(logTau), nx, ny))
 				if translation:
-					fill = np.flipud(np.rot90(fill))
+					fill = np.flipud(np.rot90(fill, axes=(1, 2)), axes=(1, 2))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1399,7 +1398,7 @@ def repackHazel(
 			else:
 				fill = np.zeros((len(logTau), nx, ny)) + photosphere[phParams[i]][0, 0, -1, 0]
 				if translation:
-					fill = np.flipud(np.rot90(fill))
+					fill = np.flipud(np.rot90(fill, axes=(1, 2)), axes=(1, 2))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1425,7 +1424,7 @@ def repackHazel(
 						else:
 							dummy_arr[:, x, y] = param[x, y]
 				if translation:
-					dummy_arr = np.flipud(np.rot90(dummy_arr))
+					dummy_arr = np.flipud(np.rot90(dummy_arr, axes=(1, 2)), axes=(1, 2))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1445,7 +1444,7 @@ def repackHazel(
 						if len(err[x, y]) != 0:
 							dummy_err[:, x, y] = err[x, y]
 				if translation:
-					dummy_err = np.flipud(np.rot90(dummy_err))
+					dummy_err = np.flipud(np.rot90(dummy_err, axes=(1, 2)), axes=(1, 2))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1459,16 +1458,14 @@ def repackHazel(
 				colarr = photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau))
 				if translation:
 					colarr = np.flipud(np.rot90(colarr))
+				colarr = np.transpose(colarr, (2, 0, 1))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(colarr.shape[0]) + "," + str(colarr.shape[1]) + ")",
+						dim='(' + str(colarr.shape[1]) + "," + str(colarr.shape[2]) + ")",
 						unit=phParamUnits[i],
-						array=np.transpose(
-							colarr,
-							(2, 0, 1)
-						)
+						array=colarr
 					)
 				)
 		# Case: Fit for, multiple nodes. Param cast as normal, err interpolated onto tau grid.
@@ -1493,7 +1490,7 @@ def repackHazel(
 								kind='linear'
 							)(np.arange(len(logTau)))
 				if translation:
-					dummy_err = np.flipud(np.rot90(dummy_err))
+					dummy_err = np.flipud(np.rot90(dummy_err, axes=(1, 2)), axes=(1, 2))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1507,16 +1504,14 @@ def repackHazel(
 				colarr = photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau))
 				if translation:
 					colarr = np.flipud(np.rot90(colarr))
+				colarr = np.transpose(colarr, (2, 0, 1))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(colarr.shape[0]) + "," + str(colarr.shape[1]) + ")",
+						dim='(' + str(colarr.shape[1]) + "," + str(colarr.shape[2]) + ")",
 						unit=phParamUnits[i],
-						array=np.transpose(
-							colarr,
-							(2, 0, 1)
-						)
+						array=colarr
 					)
 				)
 	ext = fits.BinTableHDU.from_columns(columns)
