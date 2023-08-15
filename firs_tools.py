@@ -1314,67 +1314,119 @@ def repackHazel(
 	# Now we pack our photospheric results.
 	# Unlike the chromospheres, there's an additional axis, the height profile.
 	# We'll use this profile as the length of each column in the fits table.
-
-	for i in range(len(phParams)):
-		photosphere = h5File[ph_key]
-		columns = []
-		logTau = photosphere['log_tau'][:]
-		columns.append(
-			fits.Column(
-				name='logTau',
-				format='D',
-				unit='Optical Depth',
-				array=logTau
-			)
+	photosphere = h5File[ph_key]
+	columns = []
+	logTau = photosphere['log_tau'][:]
+	columns.append(
+		fits.Column(
+			name='logTau',
+			format='D',
+			unit='Optical Depth',
+			array=logTau
 		)
+	)
+	for i in range(len(phParams)):
+		""" Slight explanation of the following code:
+		Errors are not straightforward for the photosphere.
+		There are several ways the errors are recorded:
+			1.) Multiple nodes are fit. The error is an object array of errors at each fit node.
+				e.g., 5 nodes fit, the error array is an array of shape nx, ny. 
+				Each element of the error array is either:
+					~A zero length array (could not fit the pixel)
+					~An array of errors with a length equal to the number of nodes.
+			2.) A single node is fit. This is the simplest example of case 1 above.
+				Here, each element is either length zero or one.
+			3.) The parameter is not fit. Here, when the fit succeeds, the element is a 1-array with a nan.
+				This is vexatious. 
+		So here's what we do:
+			1.) Retrieve the list of nodes used in fitting. These are presented the same way as the errors.
+				So, if the fit failed, the element is an empty list.
+				So we check the 0th nodelist, and if it's length zero, we pull at random until it isn't.
+				If the nodelist is length 1, and the element within it is a nan:
+					~The error array is a zero-array of shape (nx, ny, log_tau)
+				If the nodelist is length 1, and the element is not a nan:
+					~Only one node was fit. We create an error array of the shape (nx, ny, log_tau).
+					Then, fill the array by looping over the array of errors. Where there's a value,
+					We duplicate that value along the log_tau axis.
+					Where there's no value (fit failed), we fill with a 0 instead.
+				If the nodelist is length greater than one:
+					~Many nodes were fit. We create the same error array, but when filling, where 
+					there's an array of values, we (linear) interpolate to the length of log_tau,
+					and fill the array that way. 0s otherwise. 
+		Okay. Fuck.
+		Nevermind. Apparently, fit parameters can have nans in their nodelist AND empties.
+		I have ~no~ idea why some failed fits are rendered as nans, and others as empties, but absolutely fuck me.
+		To tell for sure that the parameter isn't fit, ALL nodes must be nans or empties. 
+		This ripples to the chromosphere.
+		AND, just to fuck me in the ass some more,  vmac in the photosphere doesn't have a height profile.
+		It's the only one I've found like that. I have no idea.
+		"""
 		print(phParams[i])
-		if 'err' in phParams[i]:
-			"""
-			Errors are not straightforward for the photosphere.
-			There are several ways the errors are recorded:
-				1.) Multiple nodes are fit. The error is an object array of errors at each fit node.
-					e.g., 5 nodes fit, the error array is an array of shape nx, ny. 
-					Each element of the error array is either:
-						~A zero length array (could not fit the pixel)
-						~An array of errors with a length equal to the number of nodes.
-				2.) A single node is fit. This is the simplest example of case 1 above.
-					Here, each element is either length zero or one.
-				3.) The parameter is not fit. Here, when the fit succeeds, the element is a 1-array with a nan.
-					This is vexatious. 
-			So here's what we do:
-				1.) Retrieve the list of nodes used in fitting. These are presented the same way as the errors.
-					So, if the fit failed, the element is an empty list.
-					So we check the 0th nodelist, and if it's length zero, we pull at random until it isn't.
-					If the nodelist is length 1, and the element within it is a nan:
-						~The error array is a zero-array of shape (nx, ny, log_tau)
-					If the nodelist is length 1, and the element is not a nan:
-						~Only one node was fit. We create an error array of the shape (nx, ny, log_tau).
-						Then, fill the array by looping over the array of errors. Where there's a value,
-						We duplicate that value along the log_tau axis.
-						Where there's no value (fit failed), we fill with a 0 instead.
-					If the nodelist is length greater than one:
-						~Many nodes were fit. We create the same error array, but when filling, where 
-						there's an array of values, we (linear) interpolate to the length of log_tau,
-						and fill the array that way. 0s otherwise. 
-			"""
-			nodeArr = photosphere[phParams[i].replace("err", "nodes")][:, 0, -1].reshape(nx, ny)
-			nodeList = nodeArr[0, 0]
-			while len(nodeList) == 0:
-				nodeList = nodeArr[
+		nodeKey = phParams[i].split("_")[0] + "_nodes"
+		nodeArr = photosphere[nodeKey][:, 0, -1].reshape(nx, ny)
+		nodeCount = len(nodeArr[0, 0])
+		while nodeCount == 0:
+			nodeCount = len(
+				nodeArr[
 					np.random.randint(0, nx),
 					np.random.randint(0, ny)
 				]
-			if (len(nodeList) == 1) & (np.isnan(nodeList[0])):
+			)
+		nodeArrFull = np.zeros((nx, ny, nodeCount))
+		for x in range(nodeArr.shape[0]):
+			for y in range(nodeArr.shape[1]):
+				if len(nodeArr[x, y]) != 0:
+					nodeArrFull[x, y, :] = nodeArr[x, y]
+		nodeArrFull = np.nan_to_num(nodeArrFull)
+		# Case: Parameter isn't fit for. All nans in node array (i.e., 0s)
+		if len(nodeArrFull[nodeArrFull != 0]) == 0:
+			if 'err' in phParams[i]:
 				columns.append(
 					fits.Column(
 						name=phParams[i],
-						format=str(int(nx*ny))+"I",
+						format=str(int(nx * ny)) + "I",
 						dim='(' + str(nx) + "," + str(ny) + ")",
 						unit=phParamUnits[i],
 						array=np.zeros((len(logTau), nx, ny))
 					)
 				)
-			elif (len(nodeList) == 1) & (not np.isnan(nodeList[0])):
+			else:
+				columns.append(
+					fits.Column(
+						name=phParams[i],
+						format=str(int(nx * ny)) + "I",
+						dim='(' + str(nx) + "," + str(ny) + ")",
+						unit=phParamUnits[i],
+						array=np.zeros((len(logTau), nx, ny)) + photosphere[phParams[i]][0, 0, -1, 0]
+					)
+				)
+		# Case: Parameter is fit for, but it's vmac which is different than any other param.
+		# No idea what happens if it's fit with more than one node, but that's a problem for later.
+		elif 'vmac' in phParams[i]:
+			dummy_arr = np.zeros((len(logTau), nx, ny))
+			if 'err' in phParams:
+				param = photosphere[phParams[i]][:, 0, -1].reshape(nx, ny)
+			else:
+				param = photosphere[phParams[i]][:, 0, -1, 0].reshape(nx, ny)
+				for x in range(param.shape[0]):
+					for y in range(param.shape[1]):
+						if type(param[x, y]) == np.ndarray:
+							if len(param[x, y]) != 0:
+								dummy_arr[:, x, y] = param[x, y]
+						else:
+							dummy_arr[:, x, y] = param[x, y]
+				columns.append(
+					fits.Column(
+						name=phParams[i],
+						format=str(int(nx * ny)) + "D",
+						dim='(' + str(nx) + "," + str(ny) + ")",
+						unit=phParamUnits[i],
+						array=dummy_arr
+					)
+				)
+		# Case: Fit for, not vmac, but only one node. Param should be fine to cast, but err needs padded out.
+		elif nodeCount == 1:
+			if "err" in phParams[i]:
 				dummy_err = np.zeros((len(logTau), nx, ny))
 				err = photosphere[phParams[i]][:, 0, -1].reshape(nx, ny)
 				for x in range(err.shape[0]):
@@ -1384,13 +1436,36 @@ def repackHazel(
 				columns.append(
 					fits.Column(
 						name=phParams[i],
-						format=str(int(nx*ny))+"D",
+						format=str(int(nx * ny)) + "D",
 						dim='(' + str(nx) + "," + str(ny) + ")",
 						unit=phParamUnits[i],
 						array=dummy_err
 					)
 				)
-			elif len(nodeList) > 1:
+			else:
+				columns.append(
+					fits.Column(
+						name=phParams[i],
+						format=str(int(nx * ny)) + "D",
+						dim='(' + str(nx) + "," + str(ny) + ")",
+						unit=phParamUnits[i],
+						array=np.transpose(
+							photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau)),
+							(2, 0, 1)
+						)
+					)
+				)
+		# Case: Fit for, multiple nodes. Param cast as normal, err interpolated onto tau grid.
+		else:
+			if "err" in phParams[i]:
+				nodeList = nodeArrFull[0, 0, :]
+				while len(nodeList[nodeList > 0]) == 0:
+					nodeList = len(
+						nodeArr[
+							np.random.randint(0, nx),
+							np.random.randint(0, ny)
+						]
+					)
 				dummy_err = np.zeros((len(logTau), nx, ny))
 				err = photosphere[phParams[i]][:, 0, -1].reshape(nx, ny)
 				for x in range(err.shape[0]):
@@ -1408,27 +1483,6 @@ def repackHazel(
 						dim='(' + str(nx) + "," + str(ny) + ")",
 						unit=phParamUnits[i],
 						array=dummy_err
-					)
-				)
-		else:
-			nodeArr = photosphere[phParams[i] + "_nodes"][:, 0, -1].reshape(nx, ny)
-			nodeList = nodeArr[0, 0]
-			while len(nodeList) == 0:
-				nodeList = nodeArr[
-					np.random.randint(0, nx),
-					np.random.randint(0, ny)
-				]
-			print(nodeList)
-			print(len(nodeList))
-			print(np.isnan(nodeList[0]))
-			if (len(nodeList) == 1) & (np.isnan(nodeList[0])):
-				columns.append(
-					fits.Column(
-						name=phParams[i],
-						format=str(int(nx * ny)) + "I",
-						dim='(' + str(nx) + "," + str(ny) + ")",
-						unit=phParamUnits[i],
-						array=np.zeros((len(logTau), nx, ny)) + photosphere[phParams[i]][0, 0, -1, 0]
 					)
 				)
 			else:
