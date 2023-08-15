@@ -1283,8 +1283,8 @@ def repackHazel(
 	# Now we pack our chromosphere results:
 	for key in ch_key:
 		chromosphere = h5File[key]
+		columns = []
 		for i in range(len(chParams)):
-			columns = []
 			if 'err' in chParams[i]:
 				paramArray = np.zeros((1, nx, ny))
 				eArray = chromosphere[chParams[i]][:, 0, -1].reshape(nx, ny)
@@ -1307,11 +1307,10 @@ def repackHazel(
 					array=paramArray
 				)
 			)
-		fitsHDUs.append(
-			fits.BinTableHDU.from_columns(
-				columns
-			)
-		)
+		ext = fits.BinTableHDU.from_columns(columns)
+		ext.header['EXTNAME'] = ("CHROMOSPHERE", 'Fit chromospheric parameters from Hazel Inversions')
+		ext.header['LINE'] = ('He-I', 'He I 10830 [AA] Triple')
+		fitsHDUs.append(ext)
 	# Now we pack our photospheric results.
 	# Unlike the chromospheres, there's an additional axis, the height profile.
 	# We'll use this profile as the length of each column in the fits table.
@@ -1499,6 +1498,9 @@ def repackHazel(
 						)
 					)
 				)
+	ext = fits.BinTableHDU.from_columns(columns)
+	ext.header['EXTNAME'] = ('PHOTOSPHERE', 'Fit photospheric parameters from SIR Inversion (through Hazel)')
+	ext.header['LINE'] = ('Si-I', 'Si I 10827 [AA]')
 	fitsHDUs.append(
 		fits.BinTableHDU.from_columns(
 			columns
