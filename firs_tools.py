@@ -1463,7 +1463,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(colarr.shape[1]) + "," + str(colarr.shape[2]) + ")",
+						dim='(' + str(colarr.shape[0]) + "," + str(colarr.shape[1]) + ")",
 						unit=phParamUnits[i],
 						array=np.transpose(
 							colarr,
@@ -1511,7 +1511,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(colarr.shape[1]) + "," + str(colarr.shape[2]) + ")",
+						dim='(' + str(colarr.shape[0]) + "," + str(colarr.shape[1]) + ")",
 						unit=phParamUnits[i],
 						array=np.transpose(
 							colarr,
