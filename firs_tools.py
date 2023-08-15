@@ -10,6 +10,7 @@ from astropy.coordinates import SkyCoord
 import astropy.io.fits as fits
 from sunpy.coordinates import frames
 from importlib import resources
+import h5py
 import FTS_atlas
 
 
@@ -907,6 +908,7 @@ def firs_coordinate_conversion(raw_file):
 	return helio_coord, rotation_angle, date
 
 
+# noinspection PyTypeChecker
 def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation, date, dx, dy, exptime, coadd):
 	"""Helper function that constructs HDUList for packaging to a final level 1.5 data product
 	Parameters:
@@ -970,6 +972,10 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
 	ext0.header['EXPTIME'] = (exptime, 'ms per coadd')
 	ext0.header['XPOSUR'] = (exptime*coadd, 'ms')
 	ext0.header['NSUMEXP'] = (coadd, 'coadds')
+	ext0.header['PRSTEP1'] = ('DARK-SUBTRACTION,FLATFIELDING', "FIRS Calibration Pipeline (C.Beck)")
+	ext0.header['PRSTEP2'] = ('POLARIZATION-CALIBRATION', 'FIRS Calibration Pipeline (C.Beck)')
+	ext0.header['PRSTEP3'] = ('PREFILTER,FRINGE-CORRECTIONS', 'firs-tools (S.Sellers)')
+	ext0.header['PRSTEP4'] = ('WAVELENGTH-CALIBRATION', 'firs-tools (S.Sellers)')
 
 	ext1 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 0, :, :])))
 	ext1.header['EXTNAME'] = 'Stokes-I'
@@ -1124,3 +1130,379 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
 	)
 
 	hdulist.writeto(outname)
+
+
+def repackHazel(
+		h5File, initFile, fitsFile, saveName,
+		nx=None, ny=None,
+		ch_key='ch1', ph_key='ph1', sp_key='he',
+		translation=False,
+):
+	"""Master function to repack h5 output from Hazel2 code to level-2 fits file for archiving and distribution.
+	Currently defaults save only the final cycle of the inversion, and the 0th randomization index.
+
+	Parameters:
+	h5File : string
+		Path to h5 Hazel code output.
+	initFile : string
+		Path to pre-Hazel h5 file.
+	fitsFile : string
+		Path to level-1.5 FIRS fits file. Used to construct headers.
+	saveName : string
+		Name for final fits file
+	nx : int or None (default)
+		By default uses the header in fitsFile to determine nx.
+		User can provide nx if they fit a specific subfield
+	ny : int or None (default)
+		Same as nx
+	ch_key : str or list
+		Key or list of keys of chromospheres used in Hazel inversions.
+		Creates a new fits extension for each key provided
+	ph_key : str
+		Key of photosphere (singular) used in Hazel inversion.
+		Creates a fits extension for the photosphere
+	sp_key : str
+		Key of the spectral extension in the h5 file.
+		Creates 8 spectral extensions; IQUV for each data and inversion
+	translation : bool
+		Legacy option from before the orientation was corrected in firs-tools level1.5 conversion.
+		If true, rotates the final maps 90 degrees and flips it along the vertical axis.
+	"""
+	fitsFile = fits.open(fitsFile)
+	dx = fitsFile[1].header['CDELT1']
+	dy = fitsFile[1].header['CDELT2']
+
+	initFile = h5py.File(initFile, "r")
+
+	h5File = h5py.File(h5File, 'r')
+	if not nx:
+		nx = fitsFile[1].header['NAXIS3'] - 1
+	if not ny:
+		ny = fitsFile[1].header['NAXIS2'] - 1
+	if type(ch_key) == str:
+		ch_key = [ch_key]
+
+	wavelength = h5File[sp_key]['wavelength'][:]
+
+	chParams = [
+		'Bx', 'Bx_err',
+		'By', 'By_err',
+		'Bz', 'Bz_err',
+		'a', 'a_err',
+		'beta', 'beta_err',
+		'deltav', 'deltav_err',
+		'ff', 'ff_err',
+		'tau', 'tau_err',
+		'v', 'v_err'
+	]
+	chParamUnits = [
+		'Gauss', 'Gauss',
+		'Gauss', 'Gauss',
+		'Gauss', 'Gauss',
+		'Damping', 'Damping',
+		'FillFactor', 'FillFactor',
+		'log10(OpticalDepth)', 'log10(OpticalDepth)',
+		'km/s', 'km/s'
+	]
+
+	phParams = [
+		'Bx', 'Bx_err',
+		'By', 'By_err',
+		'Bz', 'Bz_err',
+		'T', 'T_err',
+		'ff', 'ff_err',
+		'v', 'v_err',
+		'vmac', 'vmac_err',
+		'vmic', 'vmic_err'
+	]
+	phParamUnits = [
+		'Gauss', 'Gauss',
+		'Gauss', 'Gauss',
+		'Gauss', 'Gauss',
+		'Kelvin', 'Kelvin',
+		'FillFactor', 'FillFactor',
+		'km/s', 'km/s',
+		'km/s', 'km/s'
+	]
+
+	prstepFlags = [
+		'PRSTEP1', 'PRSTEP2', 'PRSTEP3', 'PRSTEP4', 'PRSTEP5'
+	]
+	prstepValues = [
+		'DARK-SUBTRACTION,FLATFIELDING',
+		'POLARIZATION-CALIBRATION',
+		'FRINGE-CORRECTION,PREFILTER-CORRECTION',
+		'NORMALIZATION,WAVELENGTH-CALIBRATION',
+		'HAZEL2-INVERSION'
+	]
+	prstepComments = [
+		'FIRS Calibration Pipeline (C.Beck)',
+		'FIRS Calibration Pipeline (C.Beck)',
+		'firs-tools (S.Sellers)',
+		'firs-tools (S.Sellers)',
+		'firs-tools (S.Sellers)',
+		'Hazel2 (A. Asensio Ramos)'
+	]
+
+	fitsHDUs = []
+
+	# Start with 0th hduList extension, information only:
+	ext0 = fits.PrimaryHDU()
+	ext0.header = fitsFile[0].header
+	ext0.header['DATE'] = (np.datetime64('now').astype(str), 'File created')
+	ext0.header['DATA_LEV'] = 2
+	# If the number of raster positions matches the number in the original file,
+	# Then the start and end times are valid, and can be put in the file.
+	# Otherwise, we have no way of knowing what the start/end times are.
+	# This will be fixed when the Hazel prep routines are fixed and incorporated into firs-tools.
+	if translation:
+		if nx != fitsFile[1].header['NAXIS3'] - 1:
+			del ext0.header['STARTOBS']
+			del ext0.header['DATE_END']
+			del ext0.header['ENDOBS']
+	else:
+		if ny != fitsFile[1].header['NAXIS2'] - 1:
+			del ext0.header['STARTOBS']
+			del ext0.header['DATE_END']
+			del ext0.header['ENDOBS']
+	del ext0.header['BTYPE']
+	del ext0.header['BUNIT']
+	ext0.header['FOVX'] = (nx * dx, 'arcsec')
+	ext0.header['FOVY'] = (ny * dy, 'arcsec')
+	del ext0.header['EXPTIME']
+	del ext0.header['XPOSUR']
+	del ext0.header['NSUMEXP']
+	for i in range(len(prstepFlags)):
+		ext0.header[prstepFlags[i]] = (prstepValues[i], prstepComments[i])
+
+	fitsHDUs.append(ext0)
+
+	# Now we pack our chromosphere results:
+	for key in ch_key:
+		chromosphere = h5File[key]
+		for i in range(len(chParams)):
+			columns = []
+			if 'err' in chParams[i]:
+				paramArray = chromosphere[chParams[i]][:, 0, -1].reshape(nx, ny)
+			else:
+				paramArray = chromosphere[chParams[i]][:, 0, -1, 0].reshape(nx, ny)
+			if translation:
+				paramArray = np.flipud(np.rot90(paramArray))
+			columns.append(
+				fits.Column(
+					name=chParams[i],
+					format=str(int(paramArray.shape[0]*paramArray.shape[1]))+'D',
+					dim='('+str(nx)+","+str(ny)+")",
+					unit=chParamUnits[i],
+					array=paramArray
+				)
+			)
+		fitsHDUs.append(
+			fits.BinTableHDU.from_columns(
+				columns
+			)
+		)
+	# Now we pack our photospheric results.
+	# Unlike the chromospheres, there's an additional axis, the height profile.
+	# We'll use this profile as the length of each column in the fits table.
+
+	for i in range(len(phParams)):
+		photosphere = h5File[ph_key]
+		columns = []
+		logTau = photosphere['log_tau'][:]
+		columns.append(
+			fits.Column(
+				name='logTau',
+				format='D',
+				unit='Optical Depth',
+				array=logTau
+			)
+		)
+		if 'err' in phParams[i]:
+			"""
+			Errors are not straightforward for the photosphere.
+			There are several ways the errors are recorded:
+				1.) Multiple nodes are fit. The error is an object array of errors at each fit node.
+					e.g., 5 nodes fit, the error array is an array of shape nx, ny. 
+					Each element of the error array is either:
+						~A zero length array (could not fit the pixel)
+						~An array of errors with a length equal to the number of nodes.
+				2.) A single node is fit. This is the simplest example of case 1 above.
+					Here, each element is either length zero or one.
+				3.) The parameter is not fit. Here, when the fit succeeds, the element is a 1-array with a nan.
+					This is vexatious. 
+			So here's what we do:
+				1.) Retrieve the list of nodes used in fitting. These are presented the same way as the errors.
+					So, if the fit failed, the element is an empty list.
+					So we check the 0th nodelist, and if it's length zero, we pull at random until it isn't.
+					If the nodelist is length 1, and the element within it is a nan:
+						~The error array is a zero-array of shape (nx, ny, log_tau)
+					If the nodelist is length 1, and the element is not a nan:
+						~Only one node was fit. We create an error array of the shape (nx, ny, log_tau).
+						Then, fill the array by looping over the array of errors. Where there's a value,
+						We duplicate that value along the log_tau axis.
+						Where there's no value (fit failed), we fill with a 0 instead.
+					If the nodelist is length greater than one:
+						~Many nodes were fit. We create the same error array, but when filling, where 
+						there's an array of values, we (linear) interpolate to the length of log_tau,
+						and fill the array that way. 0s otherwise. 
+			"""
+			nodeArr = photosphere[phParams[i].replace("err", "nodes")][:, 0, -1].reshape(nx, ny)
+			nodeList = nodeArr[0, 0]
+			while len(nodeList) == 0:
+				nodeList = nodeArr[
+					np.random.randint(0, nx),
+					np.random.randint(0, ny)
+				]
+			if (len(nodeList) == 1) & (np.isnan(nodeList[0])):
+				columns.append(
+					fits.Column(
+						name=phParams[i],
+						format=str(int(nx*ny))+"I",
+						dim='(' + str(nx) + "," + str(ny) + ")",
+						unit=phParamUnits[i],
+						array=np.zeros((len(logTau), nx, ny))
+					)
+				)
+			elif (len(nodeList) == 1) & (not np.isnan(nodeList[0])):
+				dummy_err = np.zeros((len(logTau), nx, ny))
+				err = photosphere[phParams[i]][:, 0, -1].reshape(nx, ny)
+				for x in range(err.shape[0]):
+					for y in range(err.shape[1]):
+						if len(err[x, y]) != 0:
+							dummy_err[:, x, y] = err[x, y]
+				columns.append(
+					fits.Column(
+						name=phParams[i],
+						format=str(int(nx*ny))+"D",
+						dim='(' + str(nx) + "," + str(ny) + ")",
+						unit=phParamUnits[i],
+						array=dummy_err
+					)
+				)
+			elif len(nodeList) > 1:
+				dummy_err = np.zeros((len(logTau), nx, ny))
+				err = photosphere[phParams[i]][:, 0, -1].reshape(nx, ny)
+				for x in range(err.shape[0]):
+					for y in range(err.shape[1]):
+						if len(err[x, y]) != 0:
+							dummy_err[:, x, y] = scinterp.interp1d(
+								nodeList,
+								err[x, y],
+								kind='linear'
+							)(np.arange(len(logTau)))
+				columns.append(
+					fits.Column(
+						name=phParams[i],
+						format=str(int(nx * ny)) + "D",
+						dim='(' + str(nx) + "," + str(ny) + ")",
+						unit=phParamUnits[i],
+						array=dummy_err
+					)
+				)
+		else:
+			columns.append(
+				fits.Column(
+					name=phParams[i],
+					format=str(int(nx * ny)) + "D",
+					dim='(' + str(nx) + "," + str(ny) + ")",
+					unit=phParamUnits[i],
+					array=np.transpose(
+						photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau)),
+						(2, 0, 1)
+					)
+				)
+			)
+	fitsHDUs.append(
+		fits.BinTableHDU.from_columns(
+			columns
+		)
+	)
+
+	# After an eternity, we can finally move on to doing the extensions that have data in them.
+	# First we do the IQUV for the pre-fit data. Then the synthetic profiles.
+
+	stks = ['I', 'Q', 'U', 'V']
+
+	for i in range(4):
+		realStokes = initFile['stokes'][:, :, i]
+		realStokes = realStokes.reshape(nx, ny, realStokes.shape[1])
+		if translation:
+			realStokes = np.flipud(np.rot90(realStokes))
+		ext = fits.ImageHDU(realStokes)
+		ext.header['EXTNAME'] = ('Stokes-'+stks[i], "Normalized by Quiet Sun, Corrected for position angle")
+		ext.header['CDELT1'] = (dx, 'arcsec')
+		ext.header['CDELT2'] = (dy, 'arcsec')
+		ext.header['CDELT3'] = fitsFile[1].header['CDELT3']
+		ext.header['CTYPE1'] = 'HPLT-TAN'
+		ext.header['CTYPE2'] = 'HPLT-TAN'
+		ext.header['CTYPE3'] = 'WAVE'
+		ext.header['CUNIT1'] = 'arcsec'
+		ext.header['CUNIT2'] = 'arcsec'
+		ext.header['CUNIT3'] = 'Angstrom'
+		ext.header['CRVAL1'] = fitsFile[1].header['CRVAL1']
+		ext.header['CRVAL2'] = fitsFile[1].header['CRVAL2']
+		ext.header['CRVAL3'] = wavelength[0]
+		ext.header['CRPIX1'] = nx / 2
+		ext.header['CRPIX2'] = ny / 2
+		ext.header['CRPIX3'] = 1
+		ext.header['CROTAN'] = fitsFile[1].header['CROTAN']
+		fitsHDUs.append(ext)
+
+	# Finally, we can do the synthetic profiles...
+	for i in range(4):
+		synthStokes = h5File[sp_key]['stokes'][:, 0, -1, i, :]
+		synthStokes = synthStokes.reshape(nx, ny, synthStokes.shape[1])
+		if translation:
+			synthStokes = np.flipud(np.rot90(synthStokes))
+		ext = fits.ImageHDU(synthStokes)
+		ext.header['EXTNAME'] = ('SYNTHETICStokes-' + stks[i], "Synthetic from Hazel2 Inversion")
+		ext.header['CDELT1'] = (dx, 'arcsec')
+		ext.header['CDELT2'] = (dy, 'arcsec')
+		ext.header['CDELT3'] = fitsFile[1].header['CDELT3']
+		ext.header['CTYPE1'] = 'HPLT-TAN'
+		ext.header['CTYPE2'] = 'HPLT-TAN'
+		ext.header['CTYPE3'] = 'WAVE'
+		ext.header['CUNIT1'] = 'arcsec'
+		ext.header['CUNIT2'] = 'arcsec'
+		ext.header['CUNIT3'] = 'Angstrom'
+		ext.header['CRVAL1'] = fitsFile[1].header['CRVAL1']
+		ext.header['CRVAL2'] = fitsFile[1].header['CRVAL2']
+		ext.header['CRVAL3'] = wavelength[0]
+		ext.header['CRPIX1'] = nx / 2
+		ext.header['CRPIX2'] = ny / 2
+		ext.header['CRPIX3'] = 1
+		ext.header['CROTAN'] = fitsFile[1].header['CROTAN']
+		fitsHDUs.append(ext)
+
+	# And the chisq map
+	chi2 = h5File[sp_key]['chi2'][:, 0, -1].reshape(nx, ny)
+	ext = fits.ImageHDU(chi2)
+	ext.header['EXTNAME'] = ("CHISQ", 'Fit chi-square from Hazel Inversions')
+	ext.header['CDELT1'] = (dx, 'arcsec')
+	ext.header['CDELT2'] = (dy, 'arcsec')
+	ext.header['CTYPE1'] = 'HPLT-TAN'
+	ext.header['CTYPE2'] = 'HPLT-TAN'
+	ext.header['CUNIT1'] = 'arcsec'
+	ext.header['CUNIT2'] = 'arcsec'
+	ext.header['CRVAL1'] = fitsFile[1].header['CRVAL1']
+	ext.header['CRVAL2'] = fitsFile[1].header['CRVAL2']
+	ext.header['CRPIX1'] = nx / 2
+	ext.header['CRPIX2'] = ny / 2
+	ext.header['CROTAN'] = fitsFile[1].header['CROTAN']
+	fitsHDUs.append(ext)
+
+	# The Wavelength Array...
+	ext = fits.ImageHDU(wavelength)
+	ext.header['EXTNAME'] = 'lambda-coordinate'
+	ext.header['BTYPE'] = 'lambda axis'
+	ext.header['BUNIT'] = '[AA]'
+	fitsHDUs.append(ext)
+
+	# And the time array (only if the full X-range is used.)
+	if nx == fitsFile[1].header['NAXIS3'] - 1:
+		fitsHDUs.append(fitsFile[-1])
+
+	hdulist = fits.HDUList(fitsHDUs)
+	hdulist.writeto(saveName)
+	return
