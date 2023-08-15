@@ -1418,6 +1418,7 @@ def repackHazel(
 					np.random.randint(0, nx),
 					np.random.randint(0, ny)
 				]
+			print(nodeList)
 			print(len(nodeList))
 			print(np.isnan(nodeList[0]))
 			if (len(nodeList) == 1) & (np.isnan(nodeList[0])):
