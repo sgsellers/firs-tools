@@ -1287,14 +1287,14 @@ def repackHazel(
 		for i in range(len(chParams)):
 			if 'err' in chParams[i]:
 				paramArray = np.zeros((nx, ny))
-				eArray = chromosphere[chParams[i]][:, 0, -1].reshape(nx, ny)
+				eArray = chromosphere[chParams[i]][:, 0, -1].reshape(ny, nx)
 				for x in range(eArray.shape[0]):
 					for y in range(eArray.shape[1]):
 						if len(eArray[x, y]) != 0:
 							paramArray[x, y] = eArray[x, y]
 
 			else:
-				paramArray = chromosphere[chParams[i]][:, 0, -1, 0].reshape(nx, ny)
+				paramArray = chromosphere[chParams[i]][:, 0, -1, 0].reshape(ny, nx)
 			if translation:
 				paramArray = np.flipud(np.rot90(paramArray))
 			columns.append(
@@ -1365,7 +1365,7 @@ def repackHazel(
 		It's the only one I've found like that. I have no idea.
 		"""
 		nodeKey = phParams[i].split("_")[0] + "_nodes"
-		nodeArr = photosphere[nodeKey][:, 0, -1].reshape(nx, ny)
+		nodeArr = photosphere[nodeKey][:, 0, -1].reshape(ny, nx)
 		nodeCount = len(nodeArr[0, 0])
 		while nodeCount == 0:
 			nodeCount = len(
@@ -1374,7 +1374,7 @@ def repackHazel(
 					np.random.randint(0, ny)
 				]
 			)
-		nodeArrFull = np.zeros((nx, ny, nodeCount))
+		nodeArrFull = np.zeros((ny, nx, nodeCount))
 		for x in range(nodeArr.shape[0]):
 			for y in range(nodeArr.shape[1]):
 				if len(nodeArr[x, y]) != 0:
@@ -1383,7 +1383,7 @@ def repackHazel(
 		# Case: Parameter isn't fit for. All nans in node array (i.e., 0s)
 		if len(nodeArrFull[nodeArrFull != 0]) == 0:
 			if 'err' in phParams[i]:
-				fill = np.zeros((len(logTau), nx, ny))
+				fill = np.zeros((len(logTau), ny, nx))
 				if translation:
 					fill = np.flip(np.rot90(fill, axes=(1, 2)), axis=1)
 				columns.append(
@@ -1396,7 +1396,7 @@ def repackHazel(
 					)
 				)
 			else:
-				fill = np.zeros((len(logTau), nx, ny)) + photosphere[phParams[i]][0, 0, -1, 0]
+				fill = np.zeros((len(logTau), ny, nx)) + photosphere[phParams[i]][0, 0, -1, 0]
 				if translation:
 					fill = np.flip(np.rot90(fill, axes=(1, 2)), axis=1)
 				columns.append(
@@ -1411,11 +1411,11 @@ def repackHazel(
 		# Case: Parameter is fit for, but it's vmac which is different than any other param.
 		# No idea what happens if it's fit with more than one node, but that's a problem for later.
 		elif 'vmac' in phParams[i]:
-			dummy_arr = np.zeros((len(logTau), nx, ny))
+			dummy_arr = np.zeros((len(logTau), ny, nx))
 			if 'err' in phParams[i]:
-				param = photosphere[phParams[i]][:, 0, -1].reshape(nx, ny)
+				param = photosphere[phParams[i]][:, 0, -1].reshape(ny, nx)
 			else:
-				param = photosphere[phParams[i]][:, 0, -1, 0].reshape(nx, ny)
+				param = photosphere[phParams[i]][:, 0, -1, 0].reshape(ny, nx)
 				for x in range(param.shape[0]):
 					for y in range(param.shape[1]):
 						if type(param[x, y]) == np.ndarray:
@@ -1438,7 +1438,7 @@ def repackHazel(
 		elif nodeCount == 1:
 			if "err" in phParams[i]:
 				dummy_err = np.zeros((len(logTau), nx, ny))
-				err = photosphere[phParams[i]][:, 0, -1].reshape(nx, ny)
+				err = photosphere[phParams[i]][:, 0, -1].reshape(ny, nx)
 				for x in range(err.shape[0]):
 					for y in range(err.shape[1]):
 						if len(err[x, y]) != 0:
@@ -1455,7 +1455,7 @@ def repackHazel(
 					)
 				)
 			else:
-				colarr = photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau))
+				colarr = photosphere[phParams[i]][:, 0, -1, :].reshape(ny, nx, len(logTau))
 				if translation:
 					colarr = np.flipud(np.rot90(colarr))
 				colarr = np.transpose(colarr, (2, 0, 1))
@@ -1480,7 +1480,7 @@ def repackHazel(
 						]
 					)
 				dummy_err = np.zeros((len(logTau), nx, ny))
-				err = photosphere[phParams[i]][:, 0, -1].reshape(nx, ny)
+				err = photosphere[phParams[i]][:, 0, -1].reshape(ny, nx)
 				for x in range(err.shape[0]):
 					for y in range(err.shape[1]):
 						if len(err[x, y]) != 0:
@@ -1501,7 +1501,7 @@ def repackHazel(
 					)
 				)
 			else:
-				colarr = photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau))
+				colarr = photosphere[phParams[i]][:, 0, -1, :].reshape(ny, nx, len(logTau))
 				if translation:
 					colarr = np.flipud(np.rot90(colarr))
 				colarr = np.transpose(colarr, (2, 0, 1))
