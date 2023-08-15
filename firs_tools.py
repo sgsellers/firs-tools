@@ -1288,6 +1288,7 @@ def repackHazel(
 				paramArray = chromosphere[chParams[i]][:, 0, -1, 0].reshape(nx, ny)
 			if translation:
 				paramArray = np.flipud(np.rot90(paramArray))
+			paramArray = paramArray.reshape(1, nx, ny)
 			columns.append(
 				fits.Column(
 					name=chParams[i],
