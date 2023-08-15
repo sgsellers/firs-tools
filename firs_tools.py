@@ -1311,6 +1311,10 @@ def repackHazel(
 		ext.header['EXTNAME'] = ("CHROMOSPHERE", 'Fit chromospheric parameters from Hazel Inversions')
 		ext.header['LINE'] = ('He-I', 'He I 10830 [AA] Triple')
 		fitsHDUs.append(ext)
+
+	hdulist = fits.HDUList(fitsHDUs)
+	hdulist.writeto(saveName)
+
 	# Now we pack our photospheric results.
 	# Unlike the chromospheres, there's an additional axis, the height profile.
 	# We'll use this profile as the length of each column in the fits table.
@@ -1361,7 +1365,6 @@ def repackHazel(
 		AND, just to fuck me in the ass some more,  vmac in the photosphere doesn't have a height profile.
 		It's the only one I've found like that. I have no idea.
 		"""
-		print(phParams[i])
 		nodeKey = phParams[i].split("_")[0] + "_nodes"
 		nodeArr = photosphere[nodeKey][:, 0, -1].reshape(nx, ny)
 		nodeCount = len(nodeArr[0, 0])
@@ -1381,23 +1384,29 @@ def repackHazel(
 		# Case: Parameter isn't fit for. All nans in node array (i.e., 0s)
 		if len(nodeArrFull[nodeArrFull != 0]) == 0:
 			if 'err' in phParams[i]:
+				fill = np.zeros((len(logTau), nx, ny))
+				if translation:
+					fill = np.flipud(np.rot90(fill))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "I",
 						dim='(' + str(nx) + "," + str(ny) + ")",
 						unit=phParamUnits[i],
-						array=np.zeros((len(logTau), nx, ny))
+						array=fill
 					)
 				)
 			else:
+				fill = np.zeros((len(logTau), nx, ny)) + photosphere[phParams[i]][0, 0, -1, 0]
+				if translation:
+					fill = np.flipud(np.rot90(fill))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "I",
 						dim='(' + str(nx) + "," + str(ny) + ")",
 						unit=phParamUnits[i],
-						array=np.zeros((len(logTau), nx, ny)) + photosphere[phParams[i]][0, 0, -1, 0]
+						array=fill
 					)
 				)
 		# Case: Parameter is fit for, but it's vmac which is different than any other param.
@@ -1415,6 +1424,8 @@ def repackHazel(
 								dummy_arr[:, x, y] = param[x, y]
 						else:
 							dummy_arr[:, x, y] = param[x, y]
+				if translation:
+					dummy_arr = np.flipud(np.rot90(dummy_arr))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1433,6 +1444,8 @@ def repackHazel(
 					for y in range(err.shape[1]):
 						if len(err[x, y]) != 0:
 							dummy_err[:, x, y] = err[x, y]
+				if translation:
+					dummy_err = np.flipud(np.rot90(dummy_err))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1443,6 +1456,9 @@ def repackHazel(
 					)
 				)
 			else:
+				colarr = photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau))
+				if translation:
+					colarr = np.flipud(np.rot90(colarr))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1450,7 +1466,7 @@ def repackHazel(
 						dim='(' + str(nx) + "," + str(ny) + ")",
 						unit=phParamUnits[i],
 						array=np.transpose(
-							photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau)),
+							colarr,
 							(2, 0, 1)
 						)
 					)
@@ -1476,6 +1492,8 @@ def repackHazel(
 								err[x, y],
 								kind='linear'
 							)(np.arange(len(logTau)))
+				if translation:
+					dummy_err = np.flipud(np.rot90(dummy_err))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1486,6 +1504,9 @@ def repackHazel(
 					)
 				)
 			else:
+				colarr = photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau))
+				if translation:
+					colarr = np.flipud(np.rot90(colarr))
 				columns.append(
 					fits.Column(
 						name=phParams[i],
@@ -1493,7 +1514,7 @@ def repackHazel(
 						dim='(' + str(nx) + "," + str(ny) + ")",
 						unit=phParamUnits[i],
 						array=np.transpose(
-							photosphere[phParams[i]][:, 0, -1, :].reshape(nx, ny, len(logTau)),
+							colarr,
 							(2, 0, 1)
 						)
 					)
@@ -1501,11 +1522,8 @@ def repackHazel(
 	ext = fits.BinTableHDU.from_columns(columns)
 	ext.header['EXTNAME'] = ('PHOTOSPHERE', 'Fit photospheric parameters from SIR Inversion (through Hazel)')
 	ext.header['LINE'] = ('Si-I', 'Si I 10827 [AA]')
-	fitsHDUs.append(
-		fits.BinTableHDU.from_columns(
-			columns
-		)
-	)
+
+	fits.append(saveName, ext.data, ext.header)
 
 	# After an eternity, we can finally move on to doing the extensions that have data in them.
 	# First we do the IQUV for the pre-fit data. Then the synthetic profiles.
@@ -1535,7 +1553,7 @@ def repackHazel(
 		ext.header['CRPIX2'] = ny / 2
 		ext.header['CRPIX3'] = 1
 		ext.header['CROTAN'] = fitsFile[1].header['CROTAN']
-		fitsHDUs.append(ext)
+		fits.append(saveName, ext.data, ext.header)
 
 	# Finally, we can do the synthetic profiles...
 	for i in range(4):
@@ -1561,10 +1579,12 @@ def repackHazel(
 		ext.header['CRPIX2'] = ny / 2
 		ext.header['CRPIX3'] = 1
 		ext.header['CROTAN'] = fitsFile[1].header['CROTAN']
-		fitsHDUs.append(ext)
+		fits.append(saveName, ext.data, ext.header)
 
 	# And the chisq map
 	chi2 = h5File[sp_key]['chi2'][:, 0, -1].reshape(nx, ny)
+	if translation:
+		chi2 = np.flipud(np.rot90(chi2))
 	ext = fits.ImageHDU(chi2)
 	ext.header['EXTNAME'] = ("CHISQ", 'Fit chi-square from Hazel Inversions')
 	ext.header['CDELT1'] = (dx, 'arcsec')
@@ -1578,19 +1598,16 @@ def repackHazel(
 	ext.header['CRPIX1'] = nx / 2
 	ext.header['CRPIX2'] = ny / 2
 	ext.header['CROTAN'] = fitsFile[1].header['CROTAN']
-	fitsHDUs.append(ext)
+	fits.append(saveName, ext.data, ext.header)
 
 	# The Wavelength Array...
 	ext = fits.ImageHDU(wavelength)
 	ext.header['EXTNAME'] = 'lambda-coordinate'
 	ext.header['BTYPE'] = 'lambda axis'
 	ext.header['BUNIT'] = '[AA]'
-	fitsHDUs.append(ext)
+	fits.append(saveName, ext.data, ext.header)
 
 	# And the time array (only if the full X-range is used.)
 	if nx == fitsFile[1].header['NAXIS3'] - 1:
-		fitsHDUs.append(fitsFile[-1])
-
-	hdulist = fits.HDUList(fitsHDUs)
-	hdulist.writeto(saveName)
+		fits.append(saveName, ext.data, ext.header)
 	return
