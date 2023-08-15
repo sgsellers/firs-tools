@@ -1327,6 +1327,7 @@ def repackHazel(
 				array=logTau
 			)
 		)
+		print(phParams[i])
 		if 'err' in phParams[i]:
 			"""
 			Errors are not straightforward for the photosphere.
