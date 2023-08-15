@@ -349,7 +349,10 @@ def select_spec_region(spectrum, reference_spectrum):
 		indmin, indmax = np.searchsorted(xref, (xmin, xmax))
 		indmax = min(len(xref) - 1, indmax)
 
-	ax_dat.set_title(f"Click and drag to select a two regions in the top plot. \nSelect the same two below. Close the window when done.")
+	ax_dat.set_title(
+		f"Click and drag to select a two regions in the top plot." +
+		"\nSelect the same two below. Close the window when done."
+	)
 
 	selector1 = SpanSelector(
 		ax_dat,
@@ -535,7 +538,7 @@ def firs_wavelength_cal(sample_int_spectrum, wavelims=(10818, 10858)):
 
 
 # noinspection PyTupleAssignmentBalance
-def firs_wavelength_cal_poly(sample_int_spectrum, wavelims=(10818, 10858)):
+def firs_wavelength_cal_poly(sample_int_spectrum, wavelims=(10818, 10858), plot=True):
 	"""Calculates the FIRS wavelength array from comparison to the FTS atlas.
 
 	2023-04-04: Rewritten ground up for simplicity and ease of use.
@@ -546,6 +549,8 @@ def firs_wavelength_cal_poly(sample_int_spectrum, wavelims=(10818, 10858)):
 		1-D Array of intensity for wavelength calibration. Normalize it first, please.
 	wavelims : list
 		Upper and lower wavelength bounds for FTS atlas selection.
+	plot : bool
+		If true, allows user to select lines manually. Uses defaults otherwise
 	Returns:
 	--------
 	wavelength_array : array-like
@@ -554,14 +559,28 @@ def firs_wavelength_cal_poly(sample_int_spectrum, wavelims=(10818, 10858)):
 
 	fts_w, fts_i = _fts_window(wavelims[0], wavelims[1])
 
-	print("Select recognizable, line cores from your FIRS spectrum and the reference FTS spectrum")
-	line_exts = select_spec_region(sample_int_spectrum, fts_i)
+	if plot or (len(sample_int_spectrum) < 900):
+		print("Select recognizable, line cores from your FIRS spectrum and the reference FTS spectrum")
+		line_exts = select_spec_region(sample_int_spectrum, fts_i)
+		line1_exts = line_exts[0]
+		line2_exts = line_exts[1]
 
-	line1_exts = line_exts[0]
-	line2_exts = line_exts[1]
+		line1_fts = line_exts[2]
+		line2_fts = line_exts[3]
+	else:
+		xmin1, xmax1 = 203, 220
+		xcen1 = np.where(sample_int_spectrum[xmin1:xmax1 + 1] == np.nanmin(sample_int_spectrum[xmin1:xmax1 + 1]))[0][0]
+		line1_exts = (xmin1 + xcen1 - 6, xmin1 + xcen1 + 6)
 
-	line1_fts = line_exts[2]
-	line2_fts = line_exts[3]
+		xmin2, xmax2 = 788, 800
+		xcen2 = np.where(sample_int_spectrum[xmin2:xmax2 + 1] == np.nanmin(sample_int_spectrum[xmin2:xmax2 + 1]))[0][0]
+		line2_exts = (xmin2 + xcen2 - 4, xmin2 + xcen2 + 4)
+
+		xmin3, xmax3 = 669, 690
+		line1_fts = (xmin3, xmax3)
+
+		xmin4, xmax4 = 2392, 2410
+		line2_fts = (xmin4, xmax4)
 
 	line1_firs_i = sample_int_spectrum[int(line1_exts[0]):int(line1_exts[1])]
 	line2_firs_i = sample_int_spectrum[int(line2_exts[0]):int(line2_exts[1])]
@@ -750,7 +769,7 @@ def firs_prefilter_correction(firs_data, wavelength_array, degrade_to=50, rollin
 		return firs_data_corr
 
 
-def firs_fringe_template(flat_dat_file, lopass_cutoff=0.4):
+def firs_fringe_template(flat_dat_file, lopass_cutoff=0.4, plot=True):
 	"""Creating templates of fringes in QUV.
 	We do this with a flat file from the same day that's gone through the FIRS reduction pipeline.
 	This flat is then wavelength-calibrated and prefilter-corrected using the above suite of functions.
@@ -769,6 +788,8 @@ def firs_fringe_template(flat_dat_file, lopass_cutoff=0.4):
 		Filename of the IDL .sav file containing the metadata of flat_dat_file
 	lopass_cutoff : float, optional
 		The frequency cutoff for making the low-pass Fourier fringe filter.
+	plot : bool
+		If true allows user to select spectral lines for wavelength calibration
 
 	Returns:
 	--------
@@ -778,7 +799,7 @@ def firs_fringe_template(flat_dat_file, lopass_cutoff=0.4):
 	"""
 
 	flat_map = read_firs(flat_dat_file)
-	wavelength_array = firs_wavelength_cal_poly(np.nanmean(flat_map[:, 0, 100:400, :], axis=(0, 1)))
+	wavelength_array = firs_wavelength_cal_poly(np.nanmean(flat_map[:, 0, 100:400, :], axis=(0, 1)), plot=plot)
 	flat_map = np.nanmean(firs_prefilter_correction(flat_map, wavelength_array), axis=0)
 	fftfreqs = np.fft.fftfreq(len(wavelength_array), wavelength_array[1]-wavelength_array[0])
 
@@ -794,7 +815,7 @@ def firs_fringe_template(flat_dat_file, lopass_cutoff=0.4):
 	return wavelength_array, quv_fringe_image
 
 
-def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5):
+def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5, plot=True):
 	"""Applies fringe correction to FIRS map by calling the fringe template function, determining any difference in the
 	wavelength regimes, and any offset in the spectrum.
 
@@ -808,6 +829,8 @@ def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5):
 		Path to a flat file that has been through the FIRS pipeline
 	lopass : float, optional
 		The frequency cutoff to be passed to the fringe template function
+	plot : bool
+		If true passes kwarg to enable selection and plotting of spectral lines
 
 	Returns:
 	--------
@@ -816,7 +839,7 @@ def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5):
 
 	"""
 
-	flat_waves, fringe_template = firs_fringe_template(flat_data_file, lopass_cutoff=lopass)
+	flat_waves, fringe_template = firs_fringe_template(flat_data_file, lopass_cutoff=lopass, plot=plot)
 	if len(flat_waves) != len(map_waves):
 		fringe_template = scinterp.interp1d(
 			flat_waves,
@@ -1039,7 +1062,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
 	return hdulist
 
 
-def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0.15, exptime=125, coadd=10):
+def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0.15, exptime=125, coadd=10, plot=False):
 	"""This function converts FIRS .dat files to level 1.5 fits files with a wavelength array, time array, and corrected
 	for fringeing. You will require a map containing a flat field that has been processed as a science map by the FIRS
 	IDL pipeline.
@@ -1062,6 +1085,8 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
 		Exposure time, default to 125 ms
 	coadd : float
 		Number of coadds, default to 10 for standard obs modes.
+	plot : bool
+		If true, allows the user to confirm selections of spectral lines used in wavelength cal
 
 	Returns:
 	--------
@@ -1073,7 +1098,8 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
 
 	# Wave Cal
 	firs_waves = firs_wavelength_cal_poly(
-		np.nanmean(firs_data[:, 0, 100:400, :], axis=(0, 1))
+		np.nanmean(firs_data[:, 0, 100:400, :], axis=(0, 1)),
+		plot=plot
 	)
 
 	# Prefilter Cal
