@@ -1289,6 +1289,7 @@ def repackHazel(
 			if translation:
 				paramArray = np.flipud(np.rot90(paramArray))
 			paramArray = paramArray.reshape(1, nx, ny)
+			print(paramArray.dtype)
 			columns.append(
 				fits.Column(
 					name=chParams[i],
