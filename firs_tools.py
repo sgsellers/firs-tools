@@ -1292,7 +1292,7 @@ def repackHazel(
 			columns.append(
 				fits.Column(
 					name=chParams[i],
-					format=str(int(paramArray.shape[0]*paramArray.shape[1]))+'D',
+					format=str(int(nx*ny))+'D',
 					dim='('+str(nx)+","+str(ny)+")",
 					unit=chParamUnits[i],
 					array=paramArray
