@@ -1188,21 +1188,23 @@ def repackHazel(
 		'Bx', 'Bx_err',
 		'By', 'By_err',
 		'Bz', 'Bz_err',
+		'v', 'v_err',
+		'deltav', 'deltav_err',
+		'tau', 'tau_err',
 		'a', 'a_err',
 		'beta', 'beta_err',
-		'deltav', 'deltav_err',
-		'ff', 'ff_err',
-		'tau', 'tau_err',
-		'v', 'v_err'
+		'ff', 'ff_err'
 	]
 	chParamUnits = [
 		'Gauss', 'Gauss',
 		'Gauss', 'Gauss',
 		'Gauss', 'Gauss',
-		'Damping', 'Damping',
-		'FillFactor', 'FillFactor',
+		'km/s', 'km/s',
+		'km/s', 'km/s',
 		'log10(OpticalDepth)', 'log10(OpticalDepth)',
-		'km/s', 'km/s'
+		'Damping', 'Damping',
+		'plasmaB', 'plasmaB',
+		'FillFactor', 'FillFactor'
 	]
 
 	phParams = [
@@ -1210,19 +1212,19 @@ def repackHazel(
 		'By', 'By_err',
 		'Bz', 'Bz_err',
 		'T', 'T_err',
-		'ff', 'ff_err',
 		'v', 'v_err',
 		'vmac', 'vmac_err',
-		'vmic', 'vmic_err'
+		'vmic', 'vmic_err',
+		'ff', 'ff_err'
 	]
 	phParamUnits = [
 		'Gauss', 'Gauss',
 		'Gauss', 'Gauss',
 		'Gauss', 'Gauss',
 		'Kelvin', 'Kelvin',
-		'FillFactor', 'FillFactor',
 		'km/s', 'km/s',
-		'km/s', 'km/s'
+		'km/s', 'km/s',
+		'FillFactor', 'FillFactor'
 	]
 
 	prstepFlags = [
