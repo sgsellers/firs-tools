@@ -1404,7 +1404,7 @@ def repackHazel(
 		# No idea what happens if it's fit with more than one node, but that's a problem for later.
 		elif 'vmac' in phParams[i]:
 			dummy_arr = np.zeros((len(logTau), nx, ny))
-			if 'err' in phParams:
+			if 'err' in phParams[i]:
 				param = photosphere[phParams[i]][:, 0, -1].reshape(nx, ny)
 			else:
 				param = photosphere[phParams[i]][:, 0, -1, 0].reshape(nx, ny)
