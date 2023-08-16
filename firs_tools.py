@@ -1314,7 +1314,6 @@ def repackHazel(
 	hdulist = fits.HDUList(fitsHDUs)
 	hdulist.writeto(saveName)
 
-	return
 	# Now we pack our photospheric results.
 	# Unlike the chromospheres, there's an additional axis, the height profile.
 	# We'll use this profile as the length of each column in the fits table.
@@ -1391,7 +1390,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "I",
-						dim='(' + str(fill.shape[1]) + "," + str(fill.shape[2]) + ")",
+						dim='(' + str(fill.shape[2]) + "," + str(fill.shape[1]) + ")",
 						unit=phParamUnits[i],
 						array=fill
 					)
@@ -1404,7 +1403,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "I",
-						dim='(' + str(fill.shape[1]) + "," + str(fill.shape[2]) + ")",
+						dim='(' + str(fill.shape[2]) + "," + str(fill.shape[1]) + ")",
 						unit=phParamUnits[i],
 						array=fill
 					)
@@ -1430,7 +1429,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(dummy_arr.shape[1]) + "," + str(dummy_arr.shape[2]) + ")",
+						dim='(' + str(dummy_arr.shape[2]) + "," + str(dummy_arr.shape[1]) + ")",
 						unit=phParamUnits[i],
 						array=dummy_arr
 					)
@@ -1450,7 +1449,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(dummy_err.shape[1]) + "," + str(dummy_err.shape[2]) + ")",
+						dim='(' + str(dummy_err.shape[2]) + "," + str(dummy_err.shape[1]) + ")",
 						unit=phParamUnits[i],
 						array=dummy_err
 					)
@@ -1464,7 +1463,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(colarr.shape[1]) + "," + str(colarr.shape[2]) + ")",
+						dim='(' + str(colarr.shape[2]) + "," + str(colarr.shape[1]) + ")",
 						unit=phParamUnits[i],
 						array=colarr
 					)
@@ -1496,7 +1495,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(dummy_err.shape[1]) + "," + str(dummy_err.shape[2]) + ")",
+						dim='(' + str(dummy_err.shape[2]) + "," + str(dummy_err.shape[1]) + ")",
 						unit=phParamUnits[i],
 						array=dummy_err
 					)
@@ -1510,7 +1509,7 @@ def repackHazel(
 					fits.Column(
 						name=phParams[i],
 						format=str(int(nx * ny)) + "D",
-						dim='(' + str(colarr.shape[1]) + "," + str(colarr.shape[2]) + ")",
+						dim='(' + str(colarr.shape[2]) + "," + str(colarr.shape[1]) + ")",
 						unit=phParamUnits[i],
 						array=colarr
 					)
