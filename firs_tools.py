@@ -1297,11 +1297,16 @@ def repackHazel(
 				paramArray = chromosphere[chParams[i]][:, 0, -1, 0].reshape(nx, ny)
 			if translation:
 				paramArray = np.flipud(np.rot90(paramArray))
-			columns.append(paramArray.reshape(paramArray.shape[0], paramArray.shape[1]))
-
-		recarr = np.rec.fromarrays(columns, names=chParams)
-		np.save("tmp.npy", recarr)
-		ext = fits.BinTableHDU.from_columns(fits.ColDefs(recarr))
+			columns.append(
+				fits.Column(
+					name=chParams[i],
+					format=str(int(nx*ny))+'D',
+					dim='('+str(paramArray.shape[1])+","+str(paramArray.shape[0])+")",
+					unit=chParamUnits[i],
+					array=paramArray.reshape(1, paramArray.shape[0], paramArray.shape[1])
+				)
+			)
+		ext = fits.BinTableHDU.from_columns(columns)
 		ext.header['EXTNAME'] = ("CHROMOSPHERE", 'Fit chromospheric parameters from Hazel Inversions')
 		ext.header['LINE'] = ('He-I', 'He I 10830 [AA] Triple')
 		fitsHDUs.append(ext)
