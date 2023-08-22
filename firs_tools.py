@@ -1757,7 +1757,9 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
 
     # Now we'll do the final normalization for Stokes-I, assemble our noise arrays
 
-    stokes_i = (stokes_i / np.nanmedian(stokes_i[:, :, :10])) * clv_factor
+    for i in range(stokes_i.shape[0]):
+        for j in range(stokes_i.shape[1]):
+            stokes_i[i, j, :] = (stokes_i[i, j, :] / np.nanmedian(stokes_i[:, :, :10])) * clv_factor[i, j]
 
     npix = int(stokes_i.shape[0] * stokes_i.shape[1])
     nlam = stokes_i.shape[2]
