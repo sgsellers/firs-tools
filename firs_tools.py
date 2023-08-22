@@ -1750,7 +1750,10 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
                 gamma[x, y] = 90 - alpha[x, y]
     phi = 0
     mu = np.cos(theta * np.pi / 180.)
-    clv_factor = hazel.util.i0_allen(10830, mu) / hazel.util.i0_allen(10830, 1.0)
+    clv_factor = np.zeros(mu.shape)
+    for x in range(mu.shape[0]):
+        for y in range(mu.shape[1]):
+            clv_factor[x, y] = hazel.util.i0_allen(10830, mu[x, y]) / hazel.util.i0_allen(10830, 1.0)
 
     # Now we'll do the final normalization for Stokes-I, assemble our noise arrays
 
