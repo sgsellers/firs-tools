@@ -1744,8 +1744,8 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
         ) / 960.
     ) * 180/np.pi
     gamma = 360 - (90 + alpha)
-    for x in gamma.shape[0]:
-        for y in gamma.shape[1]:
+    for x in range(gamma.shape[0]):
+        for y in range(gamma.shape[1]):
             if (gamma[x, y] < 0) or (gamma[x, y] > 180):
                 gamma[x, y] = 90 - alpha[x, y]
     phi = 0
