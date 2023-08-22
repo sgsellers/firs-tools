@@ -1743,8 +1743,11 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
             xyGrid[0, :, :]**2 + xyGrid[1, :, :]**2
         ) / 960.
     ) * 180/np.pi
-    gamma = 306 - (90 + alpha)
-    gamma[(gamma < 0) or (gamma > 180)] = 90 - alpha[(gamma < 0) or (gamma > 180)]
+    gamma = 360 - (90 + alpha)
+    for x in gamma.shape[0]:
+        for y in gamma.shape[1]:
+            if (gamma[x, y] < 0) or (gamma[x, y] > 180):
+                gamma[x, y] = 90 - alpha[x, y]
     phi = 0
     mu = np.cos(theta * np.pi / 180.)
     clv_factor = hazel.util.i0_allen(10830, mu) / hazel.util.i0_allen(10830, 1.0)
