@@ -1122,7 +1122,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
     firs_data = firs_prefilter_correction(firs_data, firs_waves)
 
     # Fringe Cal
-    firs_data = firs_fringecorr(firs_data, firs_waves, flat_map_fname)
+    firs_data = firs_fringecorr(firs_data, firs_waves, flat_map_fname, plot=plot)
 
     coordinates, crotan, date = firs_coordinate_conversion(raw_file)
 
