@@ -1803,7 +1803,7 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
                 yRange[0]:yRange[1],
                 0:60
             ]
-        ) * clv_factor, axis=-1
+        ) * clv_factor[:, :, :60], axis=-1
     )
     if translation:
         stokes_i_noise = np.flip(np.rot90(stokes_i_noise), axis=0)
