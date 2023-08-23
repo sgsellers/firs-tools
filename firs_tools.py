@@ -22,6 +22,8 @@ from scipy.optimize import curve_fit
 
 from sunpy.coordinates import frames
 
+import time
+
 
 # NOTE: IMPORTANT
 # ---------------
@@ -1647,6 +1649,8 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
         True to rotate data cube 90 degrees and flip n/s to bring alignment into agreement with CROTAN.
         This is a legacy option for fits files made before this behaviour was fixed in firs-tools
     """
+    t0 = time.time()
+
     import hazel
 
     if not xRange:
@@ -1706,6 +1710,7 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
         stokes_v = np.flip(np.rot90(stokes_v, axes=(0, 1)), axis=0)
     stokes_v = stokes_v - np.nanmedian(stokes_v)
 
+    print("IQUV Assembled in ",time.time() - t0)
     # Assuming the FIRS data is oriented correctly at this point, y is the 0th axis.
     # At CROTAN = 0, this is north-south
     xyGrid = np.zeros((2, firs_file[1].data.shape[0], firs_file[1].data.shape[1]))
@@ -1755,6 +1760,7 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
         for y in range(mu.shape[1]):
             clv_factor[x, y, :] = hazel.util.i0_allen(10830, mu[x, y]) / hazel.util.i0_allen(10830, 1.0)
 
+    print("xyGrid and C-L-V factor determined after ",time.time() - t0)
     # Now we'll do the final normalization for Stokes-I, assemble our noise arrays
     stokes_i = (stokes_i / np.nanmedian(stokes_i[:, :, :10])) * clv_factor
 
@@ -1803,6 +1809,8 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
         stokes_i_noise = np.flip(np.rot90(stokes_i_noise), axis=0)
     stokes_i_noise = stokes_i_noise.reshape(npix)
 
+    print("Noise arrays after",time.time() - t0)
+
     # Next we flatten stokes vectors
     stokes_3d = np.zeros((npix, nlam, 4), dtype=np.float64)
     stokes_3d[:, :, 0] = stokes_i.reshape((npix, nlam))
@@ -1834,6 +1842,8 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     sigma_3d[sigma_3d == 0] = np.nanmedian(sigma_3d[sigma_3d != 0])
     los_3d = np.nan_to_num(los_3d, nan=90.0)
 
+    print("Last assembled, about to write after ",time.time()-t0)
+
     f = h5py.File(os.path.join(outPath, "10830_inversionReady.h5"), mode="w")
     db_stokes = f.create_dataset('stokes', stokes_3d.shape, dtype=np.float64)
     db_stokes[:] = stokes_3d
@@ -1855,6 +1865,7 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
         f.write('1.0    1.0    1.0    1.0\n')
     f.close()
 
+    print("Big file written, setting up references after ", time.time() - t0)
     # Reference Atmosphere. Use HSRA photosphere for all points (even offlimb)
     phot = hazel.tools.File_photosphere(mode='multi')
     phot.set_default(n_pixel=npix, default='hsra')
