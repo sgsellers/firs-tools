@@ -1876,7 +1876,7 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     # Then we replace all offlimb points with an offlimb chromosphere
     xyGridFlat = xyGrid.reshape(2, npix)
 
-    onOffLimb = np.zeros(npix, dtype=np.object)
+    onOffLimb = np.zeros(npix, dtype=object)
     for i in range(len(onOffLimb)):
         if np.sqrt(xyGridFlat[0, i]**2 + xyGridFlat[1, i]**2) >= 960:
             onOffLimb[i] = 'offlimb'
