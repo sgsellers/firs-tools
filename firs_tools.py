@@ -1785,21 +1785,14 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
         stokes_q_noise = np.flip(np.rot90(stokes_q_noise), axis=0)
     stokes_q_noise = stokes_q_noise.reshape(npix)
 
+    stokes_i_noise_region = firs_file[1].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:60]
+    if translation:
+        stokes_i_noise_region = np.flip(np.rot90(stokes_i_noise_region, axes=(0, 1)), axis=0)
     stokes_i_noise = np.nanstd(
-        firs_file[1].data[
-            xRange[0]:xRange[1],
-            yRange[0]:yRange[1],
-            0:60
-        ] / np.nanmedian(
-            firs_file[1].data[
-                xRange[0]:xRange[1],
-                yRange[0]:yRange[1],
-                0:60
-            ]
+        stokes_i_noise_region / np.nanmedian(
+            stokes_i_noise_region
         ) * clv_factor[:, :, :60], axis=-1
     )
-    if translation:
-        stokes_i_noise = np.flip(np.rot90(stokes_i_noise), axis=0)
     stokes_i_noise = stokes_i_noise.reshape(npix)
 
     # Next we flatten stokes vectors
