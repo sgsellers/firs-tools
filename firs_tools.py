@@ -19,6 +19,7 @@ import os
 import scipy.interpolate as scinterp
 from scipy.io import readsav
 from scipy.optimize import curve_fit
+import scipy.stats as stats
 
 from sunpy.coordinates import frames
 
@@ -1666,6 +1667,10 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     rot = firs_file[0].header['ROT']
     dx = firs_file[1].header['CDELT1']
     dy = firs_file[1].header['CDELT2']
+    if fovx == 0:
+        fovx = 0.3
+    if fovy == 0:
+        fovy = 0.15
 
     waveidx_lo = _find_nearest(firs_file[5].data, waveRange[0])
     waveidx_hi = _find_nearest(firs_file[5].data, waveRange[1])
@@ -1755,7 +1760,39 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
             clv_factor[x, y, :] = hazel.util.i0_allen(10830, mu[x, y]) / hazel.util.i0_allen(10830, 1.0)
 
     # Now we'll do the final normalization for Stokes-I, assemble our noise arrays
-    stokes_i = (stokes_i / np.nanmedian(stokes_i[:, :, :10])) * clv_factor
+    # Hazel expects each profile to be normalized by the local quiet-sun intensity.
+    # Rather than trying to account for every possible case,
+    # we'll normalize slit position by slit position,
+    # using the continuum where the continuum is between 60 < I < 90 percent of the max continuum
+    norm_cube = np.nanmean(
+        firs_file[1].data[
+            xRange[0]:xRange[1],
+            yRange[0]:yRange[1],
+            0:60
+        ], axis=-1
+    )
+    if translation:
+        norm_cube = np.flip(np.rot90(norm_cube), axis=0)
+
+    # Slit positions are axis 1.
+    # Fudge along slit to 40:-40 to avoid hairlines.
+    norm_cube = norm_cube[40:-40, :]
+    for i in range(norm_cube.shape[1]):
+        continuum_values = np.nan_to_num(norm_cube[:, i])
+        percentile_vectors = np.vectorize(
+            lambda x: stats.percentileofscore(
+                continuum_values, x
+            )
+        )(continuum_values)
+        # Gets us the percentile values of the array. We want 60th -- 90th percentiles for QS.
+        lowIndex = _find_nearest(percentile_vectors, 60.)
+        highIndex = _find_nearest(percentile_vectors, 90.)
+
+        normValue = np.nanmean(
+            continuum_values[(continuum_values >= lowIndex) & (continuum_values <= highIndex)]
+        )
+
+        stokes_i[:, i, :] = (stokes_i[:, i, :] / normValue) * clv_factor[:, i, :]
 
     npix = int(stokes_i.shape[0] * stokes_i.shape[1])
     nlam = stokes_i.shape[2]
