@@ -1619,7 +1619,7 @@ def repackHazel(
     return
 
 
-def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, translation=False):
+def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, translation=False, stokesLimit=3):
     """NOTE: Requires the Hazel package to be installed!
     Writes initial files for Hazel inversions from a level-1.5 FIRS fits file.
     This includes:
@@ -1646,6 +1646,11 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     translation: bool
         True to rotate data cube 90 degrees and flip n/s to bring alignment into agreement with CROTAN.
         This is a legacy option for fits files made before this behaviour was fixed in firs-tools
+    stokesLimit: float
+        Sets all Stokes QUV profiles for Si I and He I that are below this sigma-level to zero to avoid
+        fitting noise. Default (for now) is 3. Does the comparison separately for the He I and Si I line.
+        If one is above the noise but not the other, only the profile below the limit is set to zero.
+        If both are below the noise, the entire slice is set to zero.
     """
     import hazel
 
@@ -1674,6 +1679,16 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
 
     waveidx_lo = _find_nearest(firs_file[5].data, waveRange[0])
     waveidx_hi = _find_nearest(firs_file[5].data, waveRange[1])
+
+    # Approximate spectral line ranges. Hardcoded for now.
+    # Scratch that, probably hardcoded forever.
+    # They're not going anywhere.
+    # Note that these are the indices within the sliced data.
+    siidx_lo = _find_nearest(firs_file[5].data, 10826) - waveidx_lo
+    siidx_hi = _find_nearest(firs_file[5].data, 10828) - waveidx_lo
+
+    heidx_lo = _find_nearest(firs_file[5].data, 10828) - waveidx_lo
+    heidx_hi = -1
 
     stokes_i = firs_file[1].data[
         xRange[0]:xRange[1],
@@ -1862,6 +1877,31 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     sigma_3d = np.nan_to_num(sigma_3d)
     sigma_3d[sigma_3d == 0] = np.nanmedian(sigma_3d[sigma_3d != 0])
     los_3d = np.nan_to_num(los_3d, nan=90.0)
+
+    # A bit of quick cleaning... We want to make sure we're not fitting noise profiles.
+    # So we'll check each profile for peaks above or below some (user-defined, default 3)
+    # multiple of the noise.
+    for i in range(npix):
+        for j in range(1, 4):
+            siStokes = np.abs(stokes_3d[i, siidx_lo:siidx_hi, j])
+            heStokes = np.abs(stokes_3d[i, heidx_lo:heidx_hi, j])
+            limit = stokesLimit * sigma_3d[i, 0, j]
+            # Rather than selecting the max of the stokes profiles,
+            # Since we didn't do like, a great job of de-spiking,
+            # We'll only take a profile if there are at least 3 pixels above the limit
+            # No Q profiles
+            if (len(siStokes[siStokes >= limit]) < 3) & (len(heStokes[heStokes >= limit]) < 3):
+                stokes_3d[i, :, j] = np.zeros(nlam)
+                sigma_3d[i, :, j] = np.zeros(nlam)
+            # No He I Q Profile, but Si I profile
+            elif (len(siStokes[siStokes >= limit]) >= 3) & (len(heStokes[heStokes >= limit]) < 3):
+                stokes_3d[i, heidx_lo:heidx_hi, j] = 0
+                sigma_3d[i, heidx_lo:heidx_hi, j] = 0
+            # Rare case, He I Q Profile, but no Si I Profile
+            elif (len(siStokes[siStokes >= limit]) < 3) & (len(siStokes[siStokes >= limit]) >= 3):
+                stokes_3d[i, siidx_lo:siidx_hi, j] = 0
+                sigma_3d[i, siidx_lo:siidx_hi, j] = 0
+            # Default case is to just leave it alone, so no else case needed.
 
     f = h5py.File(os.path.join(outPath, "10830_inversionReady.h5"), mode="w")
     db_stokes = f.create_dataset('stokes', stokes_3d.shape, dtype=np.float64)
