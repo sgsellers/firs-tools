@@ -1147,7 +1147,7 @@ def repackHazel(
         h5File, initFile, fitsFile, saveName,
         nx=None, ny=None,
         ch_key='ch1', ph_key='ph1', sp_key='he',
-        translation=False,
+        translation=False
 ):
     """Master function to repack h5 output from Hazel2 code to level-2 fits file for archiving and distribution.
     Currently defaults save only the final cycle of the inversion, and the 0th randomization index.
@@ -1178,6 +1178,8 @@ def repackHazel(
     translation : bool
         Legacy option from before the orientation was corrected in firs-tools level1.5 conversion.
         If true, rotates the final maps 90 degrees and flips it along the vertical axis.
+    summaryPlots : bool
+        If true, plots various key parameters and saves them in the same directory as the output file
     """
     fitsFile = fits.open(fitsFile)
     dx = fitsFile[1].header['CDELT1']
@@ -1484,12 +1486,10 @@ def repackHazel(
             if "err" in phParams[i]:
                 nodeList = nodeArrFull[0, 0, :]
                 while len(nodeList[nodeList > 0]) == 0:
-                    nodeList = len(
-                        nodeArr[
-                            np.random.randint(0, nx),
-                            np.random.randint(0, ny)
-                        ]
-                    )
+                    nodeList = nodeArr[
+                        np.random.randint(0, nx),
+                        np.random.randint(0, ny)
+                    ]
                 dummy_err = np.zeros((len(logTau), nx, ny))
                 err = photosphere[phParams[i]][:, 0, -1].reshape(nx, ny)
                 for x in range(err.shape[0]):
@@ -1616,6 +1616,7 @@ def repackHazel(
     # And the time array (only if the full X-range is used.)
     if nx == fitsFile[1].header['NAXIS3'] - 1:
         fits.append(saveName, ext.data, ext.header)
+
     return
 
 
@@ -1791,22 +1792,16 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
 
     # Slit positions are axis 1.
     # Fudge along slit to 40:-40 to avoid hairlines.
-    norm_cube = norm_cube[40:-40, :]
+    norm_cube = np.nan_to_num(norm_cube[40:-40, :])
+    # Find values corresponding to 60th and 90th percentile.
+    # Should avoid sunspots and very brightest points.
+    pct_vals = np.percentile(norm_cube, [60, 90])
     for i in range(norm_cube.shape[1]):
-        continuum_values = np.nan_to_num(norm_cube[:, i])
-        percentile_vectors = np.vectorize(
-            lambda x: stats.percentileofscore(
-                continuum_values, x
-            )
-        )(continuum_values)
-        # Gets us the percentile values of the array. We want 60th -- 90th percentiles for QS.
-        lowIndex = _find_nearest(percentile_vectors, 60.)
-        highIndex = _find_nearest(percentile_vectors, 90.)
-
-        normValue = np.nanmean(
-            continuum_values[(continuum_values >= lowIndex) & (continuum_values <= highIndex)]
-        )
-
+        slice = norm_cube[:, i]
+        if len(slice[(slice >= pct_vals[0]) & (slice <= pct_vals[1])]) < 50:
+            normValue = np.nanmean(norm_cube[(norm_cube >= pct_vals[0]) & (norm_cube <= pct_vals[1])])
+        else:
+            normValue = np.nanmean(slice[(slice >= pct_vals[0]) & (slice <= pct_vals[1])])
         stokes_i[:, i, :] = (stokes_i[:, i, :] / normValue) * clv_factor[:, i, :]
 
     npix = int(stokes_i.shape[0] * stokes_i.shape[1])
