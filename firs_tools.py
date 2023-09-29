@@ -16,12 +16,15 @@ import numpy.polynomial.polynomial as npoly
 
 import os
 
+import scipy.integrate as scinteg
 import scipy.interpolate as scinterp
 from scipy.io import readsav
 from scipy.optimize import curve_fit
 import scipy.stats as stats
 
 from sunpy.coordinates import frames
+
+import tqdm
 
 # NOTE: IMPORTANT
 # ---------------
@@ -769,11 +772,11 @@ def firs_prefilter_correction(firs_data, wavelength_array, degrade_to=50, rollin
         for i in range(firs_data.shape[0]):
             for j in range(firs_data.shape[2]):
                 firs_data_corr[i, 0, j, :] = firs_data[i, 0, j, :] / slit_pfc[j, :]
-                qtmp = firs_data[i, 1, j, :] / firs_data_corr[i, 0, j, :]
+                qtmp = firs_data[i, 1, j, :] / slit_pfc[j, :] # firs_data_corr[i, 0, j, :]
                 firs_data_corr[i, 1, j, :] = linear_spectral_tilt_correction(wavelength_array, qtmp)
-                utmp = firs_data[i, 2, j, :] / firs_data_corr[i, 0, j, :]
+                utmp = firs_data[i, 2, j, :] / slit_pfc[j, :] # firs_data_corr[i, 0, j, :]
                 firs_data_corr[i, 2, j, :] = linear_spectral_tilt_correction(wavelength_array, utmp)
-                vtmp = firs_data[i, 3, j, :] / firs_data_corr[i, 0, j, :]
+                vtmp = firs_data[i, 3, j, :] / slit_pfc[j, :] # firs_data_corr[i, 0, j, :]
                 firs_data_corr[i, 3, j, :] = linear_spectral_tilt_correction(wavelength_array, vtmp)
     if return_pfcs:
         return firs_data_corr, slit_pfc
@@ -878,6 +881,120 @@ def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5, plot=True):
                 fringe_corrected_map[i, j + 1, k, :] = map_data[i, j + 1, k, :] - fringe_corr
 
     return fringe_corrected_map
+
+def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
+    """Estimates crosstalk in the V->Q, U direction. This method assumes that:
+        1.) The crosstalk is wavelength-independent over the FIRS wavelength range
+        2.) The spatial patterns of polarization signal in Q, U, V are different.
+    The second assumption here breaks down for quiet-Sun maps, or maps without significant
+    polarization signals. To this end, the routine will print the cross-talk value.
+
+    Should the user wish to correct for V->Q,U crosstalk in quiet-sun data, I would suggest first
+    correcting for a different dataset on a nearby day with a good sunspot, then applying the crosstalk
+    values obtained from this correction. If these are no nearby datasets with differing Q,U,V structures,
+    the wavelength range can be altered from isolating the photospheric Si I line to the chromospheric
+    He I line. This should enable the user to attempt the correction from filament data.
+
+    Note that this method has not been tested.
+
+    Note that crosstalk from Q, U -> V is not considered. In general, this should be a small effect,
+    as the Q, U signals are fairly low-amplitude.
+
+    Parameters:
+    -----------
+    dataCube : array-like
+        FIRS IQUV datacube for determination of crosstalk coefficients
+    wavelengthArray : array-like
+        FIRS wavelength array for selection of the photospheric Si I line
+
+    Returns:
+    --------
+    crosstalkCoefficients : list
+        list of [V->Q, V->U] crosstalk.
+    """
+    # Position of photospheric Si I line for constructing integrated Q, U, V maps.
+    # This is hardcoded for now.
+    siidx_lo = _find_nearest(wavelengthArray, 10824.75)
+    siidx_hi = _find_nearest(wavelengthArray, 10829)
+
+    crosstalkRange = np.linspace(-0.25, 0.25, 50)
+    correlationQV = np.zeros(50)
+    correlationUV = np.zeros(50)
+    for i in tqdm.tqdm(range(len(crosstalkRange)), desc="Determining V->Q,U Crosstalk..."):
+        qmod = dataCube[:, 1, :, siidx_lo:siidx_hi] + crosstalkRange[i] * dataCube[:, 3, :, siidx_lo:siidx_hi]
+        umod = dataCube[:, 2, :, siidx_lo:siidx_hi] + crosstalkRange[i] * dataCube[:, 3, :, siidx_lo:siidx_hi]
+
+        qint = scinteg.trapezoid(
+            np.abs(qmod),
+            wavelengthArray[siidx_lo:siidx_hi],
+            axis=-1
+        )
+        uint = scinteg.trapezoid(
+            np.abs(umod),
+            wavelengthArray[siidx_lo:siidx_hi],
+            axis=-1
+        )
+        vint = scinteg.trapezoid(
+            np.abs(dataCube[:, 3, :, siidx_lo:siidx_hi]),
+            wavelengthArray[siidx_lo:siidx_hi],
+            axis=-1
+        )
+
+        s1q = np.abs(qint) - np.nanmean(np.abs(qint))
+        s1u = np.abs(uint) - np.nanmean(np.abs(uint))
+        s2v = np.abs(vint) - np.nanmean(np.abs(vint))
+
+        correlationQV[i] = np.nansum(s1q * s2v) / np.sqrt(np.nansum(s1q**2) * np.nansum(s2v**2))
+        correlationUV[i] = np.nansum(s1u * s2v) / np.sqrt(np.nansum(s1u ** 2) * np.nansum(s2v ** 2))
+
+    q_fit_coef = npoly.polyfit(
+        crosstalkRange,
+        correlationQV,
+        2
+    )
+    vqCrosstalk = - q_fit_coef[1] / (2 * q_fit_coef[2])
+
+    u_fit_coef = npoly.polyfit(
+        crosstalkRange,
+        correlationUV,
+        2
+    )
+    vuCrosstalk = - u_fit_coef[1] / (2 * u_fit_coef[2])
+
+    if plot:
+        fig = plt.figure()
+        ax = fig.add_subplot(211)
+        ax.plot(crosstalkRange, correlationQV, color='C0', label="V->Q Correlation")
+        ax.plot(
+            crosstalkRange,
+            q_fit_coef[0] + q_fit_coef[1]*crosstalkRange + q_fit_coef[2]*crosstalkRange**2,
+            color='C1',
+            linestyle='--',
+            label='Fit'
+        )
+        ax.axvline(vqCrosstalk, linestyle='--', color='k', label='Minimum: '+str(round(vqCrosstalk, 3)))
+        ax.legend(loc='lower right')
+        ax.set_title("V->Q Crosstalk")
+        ax.set_xlabel("V2Q Values")
+        ax.set_ylabel("Correlation Values")
+        ax = fig.add_subplot(212)
+        ax.plot(crosstalkRange, correlationQV, color='C0', label="V->U Correlation")
+        ax.plot(
+            crosstalkRange,
+            u_fit_coef[0] + u_fit_coef[1] * crosstalkRange + u_fit_coef[2] * crosstalkRange ** 2,
+            color='C1',
+            linestyle='--',
+            label='Fit'
+        )
+        ax.axvline(vuCrosstalk, linestyle='--', color='k', label='Minimum: ' + str(round(vuCrosstalk, 3)))
+        ax.legend(loc='lower right')
+        ax.set_title("V->U Crosstalk")
+        ax.set_xlabel("V2U Values")
+        ax.set_ylabel("Correlation Values")
+        plt.show()
+
+    crosstalkCoefficients = [vqCrosstalk, vuCrosstalk]
+    return crosstalkCoefficients
 
 
 def firs_coordinate_conversion(raw_file):
@@ -1078,8 +1195,8 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
 
     return hdulist
 
-
-def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0.15, exptime=125, coadd=10, plot=False):
+def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
+                 dx=0.3, dy=0.15, exptime=125, coadd=10, plot=False, vquCrosstalk=True):
     """This function converts FIRS .dat files to level 1.5 fits files with a wavelength array, time array, and corrected
     for fringeing. You will require a map containing a flat field that has been processed as a science map by the FIRS
     IDL pipeline.
@@ -1104,6 +1221,10 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
         Number of coadds, default to 10 for standard obs modes.
     plot : bool
         If true, allows the user to confirm selections of spectral lines used in wavelength cal
+    vquCrosstalk : bool or list
+        If true, attempts to correct for V -> Q, U crosstalk via linear correlation coefficient.
+        If false, no correction is required.
+        If vquCrosstalk is a list of floats, these are taken to be the [V->Q, V->U] crosstalk values.
 
     Returns:
     --------
@@ -1113,20 +1234,40 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
     # L1 data
     firs_data = read_firs(firs_map_fname)
 
+    print("Performing Wavelength Calibration.")
     # Wave Cal
     firs_waves = firs_wavelength_cal_poly(
         np.nanmean(firs_data[:, 0, 100:400, :], axis=(0, 1)),
         plot=plot
     )
 
+    print("Starting Prefilter Curvature Calibration.")
     # Prefilter Cal
     firs_data = firs_prefilter_correction(firs_data, firs_waves)
 
+    print("Correcting for fringes via flat map template")
     # Fringe Cal
     firs_data = firs_fringecorr(firs_data, firs_waves, flat_map_fname, plot=plot)
 
+    #V --> Q, U Crosstalk correction
+    if type(vquCrosstalk) == bool:
+        if vquCrosstalk:
+            coeffCrosstalk = firs_vqu_crosstalk(firs_data, firs_waves)
+        else:
+            coeffCrosstalk = [0, 0]
+    else:
+        coeffCrosstalk = vquCrosstalk
+
+    print("V --> Q, U Crosstalk Determined")
+    print("V --> Q = ", str(coeffCrosstalk[0]))
+    print("V --> U = ", str(coeffCrosstalk[1]))
+
+    firs_data[:, 1, :, :] = firs_data[:, 1, :, :] + coeffCrosstalk[0] * firs_data[:, 3, :, :]
+    firs_data[:, 2, :, :] = firs_data[:, 2, :, :] + coeffCrosstalk[0] * firs_data[:, 3, :, :]
+
     coordinates, crotan, date = firs_coordinate_conversion(raw_file)
 
+    print("Writing FIRS Level-1.5 fits file.")
     hdulist = firs_construct_hdu(
         firs_data,
         firs_waves,
@@ -1147,7 +1288,9 @@ def repackHazel(
         h5File, initFile, fitsFile, saveName,
         nx=None, ny=None,
         ch_key='ch1', ph_key='ph1', sp_key='he',
-        translation=False
+        translation=False,
+        binSlits=1,
+        binSpatial=1
 ):
     """Master function to repack h5 output from Hazel2 code to level-2 fits file for archiving and distribution.
     Currently defaults save only the final cycle of the inversion, and the 0th randomization index.
@@ -1178,20 +1321,22 @@ def repackHazel(
     translation : bool
         Legacy option from before the orientation was corrected in firs-tools level1.5 conversion.
         If true, rotates the final maps 90 degrees and flips it along the vertical axis.
-    summaryPlots : bool
-        If true, plots various key parameters and saves them in the same directory as the output file
+    binSlits : int
+        Binning factor used in the rastering direction (i.e., number of slits summed)
+    binSpatial : int
+        Binning factor used along the slit
     """
     fitsFile = fits.open(fitsFile)
-    dx = fitsFile[1].header['CDELT1']
-    dy = fitsFile[1].header['CDELT2']
+    dx = fitsFile[1].header['CDELT1'] * binSlits
+    dy = fitsFile[1].header['CDELT2'] * binSpatial
 
     initFile = h5py.File(initFile, "r")
 
     h5File = h5py.File(h5File, 'r')
     if not nx:
-        nx = fitsFile[1].header['NAXIS3'] - 1
+        nx = int((fitsFile[1].header['NAXIS3'] - 1) / binSlits)
     if not ny:
-        ny = fitsFile[1].header['NAXIS2'] - 1
+        ny = int((fitsFile[1].header['NAXIS2'] - 1) / binSpatial)
     if type(ch_key) == str:
         ch_key = [ch_key]
 
@@ -1542,7 +1687,7 @@ def repackHazel(
         if translation:
             realStokes = np.flipud(np.rot90(realStokes))
         ext = fits.ImageHDU(realStokes)
-        ext.header['EXTNAME'] = ('Stokes-' + stks[i], "Normalized by Quiet Sun, Corrected for position angle")
+        ext.header['EXTNAME'] = ('Stokes-' + stks[i] + "/Ic", "Normalized by Quiet Sun, Corrected for position angle")
         ext.header['CDELT1'] = (dx, 'arcsec')
         ext.header['CDELT2'] = (dy, 'arcsec')
         ext.header['CDELT3'] = fitsFile[1].header['CDELT3']
@@ -1620,7 +1765,10 @@ def repackHazel(
     return
 
 
-def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, translation=False, stokesLimit=3):
+def hazelPrep(inFile, outPath,
+              xRange=None, yRange=None, waveRange=None,
+              translation=False,
+              stokesLimit=3, binSlits=1, binSpatial=1):
     """NOTE: Requires the Hazel package to be installed!
     Writes initial files for Hazel inversions from a level-1.5 FIRS fits file.
     This includes:
@@ -1652,6 +1800,10 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
         fitting noise. Default (for now) is 3. Does the comparison separately for the He I and Si I line.
         If one is above the noise but not the other, only the profile below the limit is set to zero.
         If both are below the noise, the entire slice is set to zero.
+    binSlits: int
+        Bins that number of slit positions. Sums IQUV before QS normalization.
+    binSpatial: int
+        Bins that number along the slit. Sums IQUV before QS normalization.
     """
     import hazel
 
@@ -1691,6 +1843,26 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     heidx_lo = _find_nearest(firs_file[5].data, 10828) - waveidx_lo
     heidx_hi = -1
 
+    def binArray(data, axis, binvalue, binfunc):
+        "Bins data along axis by value"
+        dims = np.array(data.shape)
+        argdims = np.arange(data.ndim)
+        argdims[0], argdims[axis] = argdims[axis], argdims[0]
+        data = data.transpose(argdims)
+        data = [
+            binfunc(
+                np.take(
+                    data,
+                    np.arange(int(i*binvalue), int(i*binvalue + binvalue)),
+                    0
+                ),
+                0
+            )
+            for i in np.arange(dims[axis]//binvalue)
+        ]
+        data = np.array(data).transpose(argdims)
+        return data
+
     stokes_i = firs_file[1].data[
         xRange[0]:xRange[1],
         yRange[0]:yRange[1],
@@ -1698,6 +1870,8 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     ]
     if translation:
         stokes_i = np.flip(np.rot90(stokes_i, axes=(0, 1)), axis=0)
+    stokes_i = binArray(stokes_i, 0, binSpatial, np.nansum)
+    stokes_i = binArray(stokes_i, 1, binSlits, np.nansum)
 
     stokes_q = firs_file[2].data[
         xRange[0]:xRange[1],
@@ -1707,6 +1881,8 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     if translation:
         stokes_q = np.flip(np.rot90(stokes_q, axes=(0, 1)), axis=0)
     stokes_q = stokes_q - np.nanmedian(stokes_q)
+    stokes_q = binArray(stokes_q, 0, binSpatial, np.nansum)
+    stokes_q = binArray(stokes_q, 1, binSlits, np.nansum)
 
     stokes_u = firs_file[3].data[
                xRange[0]:xRange[1],
@@ -1716,6 +1892,8 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     if translation:
         stokes_u = np.flip(np.rot90(stokes_u, axes=(0, 1)), axis=0)
     stokes_u = stokes_u - np.nanmedian(stokes_u)
+    stokes_u = binArray(stokes_u, 0, binSpatial, np.nansum)
+    stokes_u = binArray(stokes_u, 1, binSlits, np.nansum)
 
     stokes_v = firs_file[4].data[
                xRange[0]:xRange[1],
@@ -1725,6 +1903,8 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     if translation:
         stokes_v = np.flip(np.rot90(stokes_v, axes=(0, 1)), axis=0)
     stokes_v = stokes_v - np.nanmedian(stokes_v)
+    stokes_v = binArray(stokes_v, 0, binSpatial, np.nansum)
+    stokes_v = binArray(stokes_v, 1, binSlits, np.nansum)
 
     # Assuming the FIRS data is oriented correctly at this point, y is the 0th axis.
     # At CROTAN = 0, this is north-south
@@ -1755,6 +1935,8 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
             xyGrid[1, y, x] = colY
 
     xyGrid = xyGrid[:, xRange[0]:xRange[1], yRange[0]:yRange[1]]
+    xyGrid = binArray(xyGrid, 1, binSpatial, np.nanmean)
+    xyGrid = binArray(xyGrid, 2, binSlits, np.nanmean)
 
     # Now we can assemble our alpha/theta/gamma grids for Hazel
     alpha = 180. * np.arctan(xyGrid[0, :, :] / xyGrid[1, :, :]) / np.pi
@@ -1789,10 +1971,12 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
     )
     if translation:
         norm_cube = np.flip(np.rot90(norm_cube), axis=0)
-
     # Slit positions are axis 1.
     # Fudge along slit to 40:-40 to avoid hairlines.
     norm_cube = np.nan_to_num(norm_cube[40:-40, :])
+    norm_cube = binArray(norm_cube, 0, binSpatial, np.nansum)
+    norm_cube = binArray(norm_cube, 1, binSlits, np.nansum)
+
     # Find values corresponding to 60th and 90th percentile.
     # Should avoid sunspots and very brightest points.
     pct_vals = np.percentile(norm_cube, [60, 90])
@@ -1803,38 +1987,51 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
         else:
             normValue = np.nanmean(slice[(slice >= pct_vals[0]) & (slice <= pct_vals[1])])
         stokes_i[:, i, :] = (stokes_i[:, i, :] / normValue) * clv_factor[:, i, :]
+        stokes_q[:, i, :] = stokes_q[:, i, :] * (clv_factor[:, i, :] / normValue)
+        stokes_u[:, i, :] = stokes_u[:, i, :] * (clv_factor[:, i, :] / normValue)
+        stokes_v[:, i, :] = stokes_v[:, i, :] * (clv_factor[:, i, :] / normValue)
 
     npix = int(stokes_i.shape[0] * stokes_i.shape[1])
     nlam = stokes_i.shape[2]
 
-    stokes_v_noise = np.nanstd(
-        firs_file[4].data[
-            xRange[0]:xRange[1],
-            yRange[0]:yRange[1],
-            0:60
-        ], axis=-1
-    )
+    v_noise_slice = firs_file[4].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:100]
     if translation:
-        stokes_v_noise = np.flip(np.rot90(stokes_v_noise), axis=0)
+        v_noise_slice = np.flip(np.rot90(v_noise_slice, axes=(0, 1)), axis=0)
+    v_noise_slice = binArray(v_noise_slice, 0, binSpatial, np.nansum)
+    v_noise_slice = binArray(v_noise_slice, 1, binSlits, np.nansum)
+    stokes_v_noise = np.nanstd(
+        v_noise_slice,
+        axis=-1
+    )
     stokes_v_noise = stokes_v_noise.reshape(npix)
 
-    stokes_u_noise = np.nanstd(
-        firs_file[3].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:60], axis=-1
-    )
+    u_noise_slice = firs_file[3].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:100]
     if translation:
-        stokes_u_noise = np.flip(np.rot90(stokes_u_noise), axis=0)
+        u_noise_slice = np.flip(np.rot90(u_noise_slice, axes=(0, 1)), axis=0)
+    u_noise_slice = binArray(u_noise_slice, 0, binSpatial, np.nansum)
+    u_noise_slice = binArray(u_noise_slice, 1, binSlits, np.nansum)
+    stokes_u_noise = np.nanstd(
+        u_noise_slice,
+        axis=-1
+    )
     stokes_u_noise = stokes_u_noise.reshape(npix)
 
-    stokes_q_noise = np.nanstd(
-        firs_file[2].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:60], axis=-1
-    )
+    q_noise_slice = firs_file[2].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:100]
     if translation:
-        stokes_q_noise = np.flip(np.rot90(stokes_q_noise), axis=0)
+        q_noise_slice = np.flip(np.rot90(q_noise_slice, axes=(0, 1)), axis=0)
+    q_noise_slice = binArray(q_noise_slice, 0, binSpatial, np.nansum)
+    q_noise_slice = binArray(q_noise_slice, 1, binSlits, np.nansum)
+    stokes_q_noise = np.nanstd(
+        q_noise_slice,
+        axis=-1
+    )
     stokes_q_noise = stokes_q_noise.reshape(npix)
 
     stokes_i_noise_region = firs_file[1].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:60]
     if translation:
         stokes_i_noise_region = np.flip(np.rot90(stokes_i_noise_region, axes=(0, 1)), axis=0)
+    stokes_i_noise_region = binArray(stokes_i_noise_region, 0, binSpatial, np.nansum)
+    stokes_i_noise_region = binArray(stokes_i_noise_region, 1, binSlits, np.nansum)
     stokes_i_noise = np.nanstd(
         stokes_i_noise_region / np.nanmedian(
             stokes_i_noise_region
