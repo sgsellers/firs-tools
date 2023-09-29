@@ -947,30 +947,37 @@ def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
         correlationQV[i] = np.nansum(s1q * s2v) / np.sqrt(np.nansum(s1q**2) * np.nansum(s2v**2))
         correlationUV[i] = np.nansum(s1u * s2v) / np.sqrt(np.nansum(s1u ** 2) * np.nansum(s2v ** 2))
 
-    q_fit_coef = npoly.polyfit(
+
+    qv_interp = scinterp.interp1d(
         crosstalkRange,
         correlationQV,
-        2
-    )
-    vqCrosstalk = - q_fit_coef[1] / (2 * q_fit_coef[2])
+        kind='quadratic')(np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000))
+    vqCrosstalk = np.linspace(
+        crosstalkRange[0],
+        crosstalkRange[-1],
+        1000
+    )[list(qv_interp).index(np.nanmin(qv_interp))]
 
-    u_fit_coef = npoly.polyfit(
+    uv_interp = scinterp.interp1d(
         crosstalkRange,
         correlationUV,
-        2
-    )
-    vuCrosstalk = - u_fit_coef[1] / (2 * u_fit_coef[2])
+        kind='quadratic')(np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000))
+    vuCrosstalk = np.linspace(
+        crosstalkRange[0],
+        crosstalkRange[-1],
+        1000
+    )[list(uv_interp).index(np.nanmin(uv_interp))]
 
     if plot:
         fig = plt.figure()
         ax = fig.add_subplot(211)
         ax.plot(crosstalkRange, correlationQV, color='C0', label="V->Q Correlation")
         ax.plot(
-            crosstalkRange,
-            q_fit_coef[0] + q_fit_coef[1]*crosstalkRange + q_fit_coef[2]*crosstalkRange**2,
+            np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000),
+            qv_interp,
             color='C1',
             linestyle='--',
-            label='Fit'
+            label='Interpolated'
         )
         ax.axvline(vqCrosstalk, linestyle='--', color='k', label='Minimum: '+str(round(vqCrosstalk, 3)))
         ax.legend(loc='lower right')
@@ -980,17 +987,18 @@ def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
         ax = fig.add_subplot(212)
         ax.plot(crosstalkRange, correlationQV, color='C0', label="V->U Correlation")
         ax.plot(
-            crosstalkRange,
-            u_fit_coef[0] + u_fit_coef[1] * crosstalkRange + u_fit_coef[2] * crosstalkRange ** 2,
+            np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000),
+            uv_interp,
             color='C1',
             linestyle='--',
-            label='Fit'
+            label='Interpolated'
         )
         ax.axvline(vuCrosstalk, linestyle='--', color='k', label='Minimum: ' + str(round(vuCrosstalk, 3)))
         ax.legend(loc='lower right')
         ax.set_title("V->U Crosstalk")
         ax.set_xlabel("V2U Values")
         ax.set_ylabel("Correlation Values")
+        plt.tight_layout()
         plt.show()
 
     crosstalkCoefficients = [vqCrosstalk, vuCrosstalk]
