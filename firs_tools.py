@@ -985,7 +985,7 @@ def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
         ax.set_xlabel("V2Q Values")
         ax.set_ylabel("Correlation Values")
         ax = fig.add_subplot(212)
-        ax.plot(crosstalkRange, correlationQV, color='C0', label="V->U Correlation")
+        ax.plot(crosstalkRange, correlationUV, color='C0', label="V->U Correlation")
         ax.plot(
             np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000),
             uv_interp,
