@@ -758,7 +758,7 @@ def firs_prefilter_correction(firs_data, wavelength_array, degrade_to=50, rollin
             mean_slit = mean_slit / len(bright_args)
 
         slit_pfc = np.zeros(mean_slit.shape)
-        for i in range(mean_slit.shape[0]):
+        for i in tqdm.tqdm(range(mean_slit.shape[0]), desc="Determining Prefilter Shape..."):
             divided = mean_slit[i, :] / fts_spec_in_firs_resolution
             firsfts_interp = scinterp.interp1d(
                 wavelength_array,
@@ -769,7 +769,7 @@ def firs_prefilter_correction(firs_data, wavelength_array, degrade_to=50, rollin
             pfc = pfc / np.nanmax(pfc)
             slit_pfc[i, :] = pfc
 
-        for i in range(firs_data.shape[0]):
+        for i in tqdm.tqdm(range(firs_data.shape[0]), desc="Applying Prefilter Shape..."):
             for j in range(firs_data.shape[2]):
                 firs_data_corr[i, 0, j, :] = firs_data[i, 0, j, :] / slit_pfc[j, :]
                 qtmp = firs_data[i, 1, j, :] / slit_pfc[j, :] # firs_data_corr[i, 0, j, :]
@@ -821,7 +821,7 @@ def firs_fringe_template(flat_dat_file, lopass_cutoff=0.4, plot=True):
     ft_cut1 = fftfreqs >= lopass_cutoff
     ft_cut2 = fftfreqs <= -lopass_cutoff
     quv_fringe_image = np.zeros((3, flat_map.shape[1], flat_map.shape[2]))
-    for i in range(flat_map.shape[1]):
+    for i in tqdm.tqdm(range(flat_map.shape[1]), desc="Creating Fringe Template..."):
         for j in range(1, 4):
             quv_ft = np.fft.fft(_rolling_median(flat_map[j, i, :], 16))
             quv_ft[ft_cut1] = 0
@@ -868,7 +868,7 @@ def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5, plot=True):
 
     fringe_corrected_map[:, 0, :, :] = map_data[:, 0, :, :]
 
-    for i in range(fringe_corrected_map.shape[0]):
+    for i in tqdm.tqdm(range(fringe_corrected_map.shape[0]), desc="Applying Fringe Correction..."):
         for j in range(3):
             for k in range(fringe_corrected_map.shape[2]):
                 map_med = np.nanmedian(map_data[i, j + 1, k, :50])
@@ -1125,7 +1125,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
     ext1.header['CROTAN'] = rotation
 
     ext2 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 1, :, :])))
-    ext2.header['EXTNAME'] = 'Stokes-Q'
+    ext2.header['EXTNAME'] = ('Stokes-Q', "Corrected for I,V Crosstalk. Not normalized.")
     ext2.header['CDELT1'] = (dx, 'arcsec')
     ext2.header['CDELT2'] = (dy, 'arcsec')
     ext2.header['CDELT3'] = (firs_lambda[1] - firs_lambda[0], 'Angstom')
@@ -1144,7 +1144,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
     ext2.header['CROTAN'] = rotation
 
     ext3 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 2, :, :])))
-    ext3.header['EXTNAME'] = 'Stokes-U'
+    ext3.header['EXTNAME'] = ('Stokes-U', "Corrected for I,V Crosstalk. Not normalized.")
     ext3.header['CDELT1'] = (dx, 'arcsec')
     ext3.header['CDELT2'] = (dy, 'arcsec')
     ext3.header['CDELT3'] = (firs_lambda[1] - firs_lambda[0], 'Angstom')
@@ -1163,7 +1163,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
     ext3.header['CROTAN'] = rotation
 
     ext4 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 3, :, :])))
-    ext4.header['EXTNAME'] = 'Stokes-V'
+    ext4.header['EXTNAME'] = ('Stokes-V', "Corrected for I crosstalk. Not normalized")
     ext4.header['CDELT1'] = (dx, 'arcsec')
     ext4.header['CDELT2'] = (dy, 'arcsec')
     ext4.header['CDELT3'] = (firs_lambda[1] - firs_lambda[0], 'Angstom')
@@ -1241,7 +1241,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
         plot=plot
     )
 
-    print("Starting Prefilter Curvature Calibration.")
+    print("Performing Prefilter Curvature Calibration.")
     # Prefilter Cal
     firs_data = firs_prefilter_correction(firs_data, firs_waves)
 
