@@ -1885,15 +1885,15 @@ def hazelPrep(inFile, outPath, xRange=None, yRange=None, waveRange=None, transla
             # Since we didn't do like, a great job of de-spiking,
             # We'll only take a profile if there are at least 3 pixels above the limit
             # No Q profiles
-            if (len(siStokes[siStokes >= limit]) < 3) & (len(heStokes[heStokes >= limit]) < 3):
+            if (len(siStokes[siStokes >= limit]) < 2) & (len(heStokes[heStokes >= limit]) < 2):
                 stokes_3d[i, :, j] = np.zeros(nlam)
                 sigma_3d[i, :, j] = np.zeros(nlam)
             # No He I Q Profile, but Si I profile
-            elif (len(siStokes[siStokes >= limit]) >= 3) & (len(heStokes[heStokes >= limit]) < 3):
+            elif (len(siStokes[siStokes >= limit]) >= 2) & (len(heStokes[heStokes >= limit]) < 2):
                 stokes_3d[i, heidx_lo:heidx_hi, j] = 0
                 sigma_3d[i, heidx_lo:heidx_hi, j] = 0
             # Rare case, He I Q Profile, but no Si I Profile
-            elif (len(siStokes[siStokes >= limit]) < 3) & (len(siStokes[siStokes >= limit]) >= 3):
+            elif (len(siStokes[siStokes >= limit]) < 2) & (len(siStokes[siStokes >= limit]) >= 2):
                 stokes_3d[i, siidx_lo:siidx_hi, j] = 0
                 sigma_3d[i, siidx_lo:siidx_hi, j] = 0
             # Default case is to just leave it alone, so no else case needed.
