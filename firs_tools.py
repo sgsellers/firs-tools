@@ -2019,7 +2019,7 @@ def hazelPrep(inFile, outPath,
         else:
             normValue = np.nanmean(slice[(slice >= pct_vals[0]) & (slice <= pct_vals[1])])
         stokes_i[:, i, :] = (stokes_i[:, i, :] / normValue) * clv_factor[:, i, :]
-        stokes_i_noise_region[:, i, :] = (stokes_i_noise_region / normValue) * clv_factor[:, i, :100]
+        stokes_i_noise_region[:, i, :] = (stokes_i_noise_region[:, i, :] / normValue) * clv_factor[:, i, :100]
         stokes_q[:, i, :] = stokes_q[:, i, :] * (clv_factor[:, i, :] / normValue)
         q_noise_slice[:, i, :] = q_noise_slice[:, i, :] * (clv_factor[:, i, :100] / normValue)
         stokes_u[:, i, :] = stokes_u[:, i, :] * (clv_factor[:, i, :] / normValue)
