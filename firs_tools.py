@@ -1965,6 +1965,30 @@ def hazelPrep(inFile, outPath,
         for y in range(mu.shape[1]):
             clv_factor[x, y, :] = hazel.util.i0_allen(10830, mu[x, y]) / hazel.util.i0_allen(10830, 1.0)
 
+    v_noise_slice = firs_file[4].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:100]
+    if translation:
+        v_noise_slice = np.flip(np.rot90(v_noise_slice, axes=(0, 1)), axis=0)
+    v_noise_slice = binArray(v_noise_slice, 0, binSpatial, np.nansum)
+    v_noise_slice = binArray(v_noise_slice, 1, binSlits, np.nansum)
+
+    u_noise_slice = firs_file[3].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:100]
+    if translation:
+        u_noise_slice = np.flip(np.rot90(u_noise_slice, axes=(0, 1)), axis=0)
+    u_noise_slice = binArray(u_noise_slice, 0, binSpatial, np.nansum)
+    u_noise_slice = binArray(u_noise_slice, 1, binSlits, np.nansum)
+
+    q_noise_slice = firs_file[2].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:100]
+    if translation:
+        q_noise_slice = np.flip(np.rot90(q_noise_slice, axes=(0, 1)), axis=0)
+    q_noise_slice = binArray(q_noise_slice, 0, binSpatial, np.nansum)
+    q_noise_slice = binArray(q_noise_slice, 1, binSlits, np.nansum)
+
+    stokes_i_noise_region = firs_file[1].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:100]
+    if translation:
+        stokes_i_noise_region = np.flip(np.rot90(stokes_i_noise_region, axes=(0, 1)), axis=0)
+    stokes_i_noise_region = binArray(stokes_i_noise_region, 0, binSpatial, np.nanmean)
+    stokes_i_noise_region = binArray(stokes_i_noise_region, 1, binSlits, np.nanmean)
+
     # Now we'll do the final normalization for Stokes-I, assemble our noise arrays
     # Hazel expects each profile to be normalized by the local quiet-sun intensity.
     # Rather than trying to account for every possible case,
@@ -1972,9 +1996,9 @@ def hazelPrep(inFile, outPath,
     # using the continuum where the continuum is between 60 < I < 90 percent of the max continuum
     norm_cube = np.nanmean(
         firs_file[1].data[
-            xRange[0]:xRange[1],
-            yRange[0]:yRange[1],
-            0:60
+        xRange[0]:xRange[1],
+        yRange[0]:yRange[1],
+        0:60
         ], axis=-1
     )
     if translation:
@@ -1995,60 +2019,16 @@ def hazelPrep(inFile, outPath,
         else:
             normValue = np.nanmean(slice[(slice >= pct_vals[0]) & (slice <= pct_vals[1])])
         stokes_i[:, i, :] = (stokes_i[:, i, :] / normValue) * clv_factor[:, i, :]
+        stokes_i_noise_region[:, i, :] = (stokes_i_noise_region / normValue) * clv_factor[:, i, :100]
         stokes_q[:, i, :] = stokes_q[:, i, :] * (clv_factor[:, i, :] / normValue)
+        q_noise_slice[:, i, :] = q_noise_slice[:, i, :] * (clv_factor[:, i, :100] / normValue)
         stokes_u[:, i, :] = stokes_u[:, i, :] * (clv_factor[:, i, :] / normValue)
+        u_noise_slice[:, i, :] = u_noise_slice[:, i, :] * (clv_factor[:, i, :100] / normValue)
         stokes_v[:, i, :] = stokes_v[:, i, :] * (clv_factor[:, i, :] / normValue)
+        v_noise_slice[:, i, :] = v_noise_slice[:, i, :] * (clv_factor[:, i, :100] / normValue)
 
     npix = int(stokes_i.shape[0] * stokes_i.shape[1])
     nlam = stokes_i.shape[2]
-
-    v_noise_slice = firs_file[4].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:100]
-    v_noise_slice = v_noise_slice/np.nanmean(v_noise_slice, axis=-1)
-    if translation:
-        v_noise_slice = np.flip(np.rot90(v_noise_slice, axes=(0, 1)), axis=0)
-    v_noise_slice = binArray(v_noise_slice, 0, binSpatial, np.nanmean)
-    v_noise_slice = binArray(v_noise_slice, 1, binSlits, np.nanmean)
-    stokes_v_noise = np.nanstd(
-        v_noise_slice,
-        axis=-1
-    )
-    stokes_v_noise = stokes_v_noise.reshape(npix)
-
-    u_noise_slice = firs_file[3].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:100]
-    u_noise_slice = u_noise_slice / np.nanmean(u_noise_slice, axis=-1)
-    if translation:
-        u_noise_slice = np.flip(np.rot90(u_noise_slice, axes=(0, 1)), axis=0)
-    u_noise_slice = binArray(u_noise_slice, 0, binSpatial, np.nanmean)
-    u_noise_slice = binArray(u_noise_slice, 1, binSlits, np.nanmean)
-    stokes_u_noise = np.nanstd(
-        u_noise_slice,
-        axis=-1
-    )
-    stokes_u_noise = stokes_u_noise.reshape(npix)
-
-    q_noise_slice = firs_file[2].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:100]
-    q_noise_slice = q_noise_slice / np.nanmean(q_noise_slice, axis=-1)
-    if translation:
-        q_noise_slice = np.flip(np.rot90(q_noise_slice, axes=(0, 1)), axis=0)
-    q_noise_slice = binArray(q_noise_slice, 0, binSpatial, np.nanmean)
-    q_noise_slice = binArray(q_noise_slice, 1, binSlits, np.nanmean)
-    stokes_q_noise = np.nanstd(
-        q_noise_slice,
-        axis=-1
-    )
-    stokes_q_noise = stokes_q_noise.reshape(npix)
-
-    stokes_i_noise_region = firs_file[1].data[xRange[0]:xRange[1], yRange[0]:yRange[1], 0:60]
-    if translation:
-        stokes_i_noise_region = np.flip(np.rot90(stokes_i_noise_region, axes=(0, 1)), axis=0)
-    stokes_i_noise_region = binArray(stokes_i_noise_region, 0, binSpatial, np.nanmean)
-    stokes_i_noise_region = binArray(stokes_i_noise_region, 1, binSlits, np.nanmean)
-    stokes_i_noise = np.nanstd(
-        stokes_i_noise_region / np.nanmedian(
-            stokes_i_noise_region
-        ) * clv_factor[:, :, :60], axis=-1
-    )
-    stokes_i_noise = stokes_i_noise.reshape(npix)
 
     # Next we flatten stokes vectors
     stokes_3d = np.zeros((npix, nlam, 4), dtype=np.float64)
@@ -2056,6 +2036,12 @@ def hazelPrep(inFile, outPath,
     stokes_3d[:, :, 1] = stokes_q.reshape((npix, nlam))
     stokes_3d[:, :, 2] = stokes_u.reshape((npix, nlam))
     stokes_3d[:, :, 3] = stokes_v.reshape((npix, nlam))
+
+    stokes_v_noise = np.nanstd(v_noise_slice, axis=-1).reshape(npix)
+    stokes_u_noise = np.nanstd(u_noise_slice, axis=-1).reshape(npix)
+    stokes_q_noise = np.nanstd(q_noise_slice, axis=-1).reshape(npix)
+    stokes_i_noise = np.nanstd(stokes_i_noise_region - 1, axis=-1).reshape(npix)
+
 
     # And the Stokes noise
     sigma_3d = np.zeros(stokes_3d.shape)
