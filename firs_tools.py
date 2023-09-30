@@ -1291,7 +1291,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
         coadd
     )
 
-    hdulist.writeto(outname)
+    hdulist.writeto(outname, overwrite=True)
 
 
 def repackHazel(
