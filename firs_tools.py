@@ -26,6 +26,8 @@ from sunpy.coordinates import frames
 
 import tqdm
 
+import warnings
+
 # NOTE: IMPORTANT
 # ---------------
 # This package does not constitute a substitute for the IDL FIRS pipeline.
@@ -948,32 +950,25 @@ def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
         correlationUV[i] = np.nansum(s1u * s2v) / np.sqrt(np.nansum(s1u ** 2) * np.nansum(s2v ** 2))
 
 
+    interp_range = np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000)
     qv_interp = scinterp.interp1d(
         crosstalkRange,
         correlationQV,
-        kind='quadratic')(np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000))
-    vqCrosstalk = np.linspace(
-        crosstalkRange[0],
-        crosstalkRange[-1],
-        1000
-    )[list(qv_interp).index(np.nanmin(qv_interp))]
+        kind='quadratic')(interp_range)
+    vqCrosstalk = interp_range[list(qv_interp).index(np.nanmin(qv_interp))]
 
     uv_interp = scinterp.interp1d(
         crosstalkRange,
         correlationUV,
-        kind='quadratic')(np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000))
-    vuCrosstalk = np.linspace(
-        crosstalkRange[0],
-        crosstalkRange[-1],
-        1000
-    )[list(uv_interp).index(np.nanmin(uv_interp))]
+        kind='quadratic')(interp_range)
+    vuCrosstalk = interp_range[list(uv_interp).index(np.nanmin(uv_interp))]
 
     if plot:
         fig = plt.figure()
         ax = fig.add_subplot(211)
         ax.plot(crosstalkRange, correlationQV, color='C0', label="V->Q Correlation")
         ax.plot(
-            np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000),
+            interp_range,
             qv_interp,
             color='C1',
             linestyle='--',
@@ -987,7 +982,7 @@ def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
         ax = fig.add_subplot(212)
         ax.plot(crosstalkRange, correlationUV, color='C0', label="V->U Correlation")
         ax.plot(
-            np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000),
+            interp_range,
             uv_interp,
             color='C1',
             linestyle='--',
@@ -1000,6 +995,13 @@ def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
         ax.set_ylabel("Correlation Values")
         plt.tight_layout()
         plt.show()
+
+    if (vqCrosstalk == interp_range[0]) or (vqCrosstalk == interp_range[-1]):
+        warnings.warn("V->Q Crosstalk could not be determined via linear correlation. Defaulting to 0.")
+        vqCrosstalk = 0
+    if (vuCrosstalk == interp_range[0]) or (vuCrosstalk == interp_range[-1]):
+        warnings.warn("V->U Crosstalk could not be determined via linear correlation. Defaulting to 0.")
+        vuCrosstalk = 0
 
     crosstalkCoefficients = [vqCrosstalk, vuCrosstalk]
     return crosstalkCoefficients
