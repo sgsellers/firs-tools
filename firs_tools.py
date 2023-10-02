@@ -989,7 +989,7 @@ def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
             label='Interpolated'
         )
         ax.axvline(vuCrosstalk, linestyle='--', color='k', label='Minimum: ' + str(round(vuCrosstalk, 3)))
-        ax.legend(loc='lower right')
+        ax.legend(loc='lower left')
         ax.set_title("V->U Crosstalk")
         ax.set_xlabel("V2U Values")
         ax.set_ylabel("Correlation Values")
