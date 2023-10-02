@@ -919,7 +919,7 @@ def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
     siidx_lo = _find_nearest(wavelengthArray, 10824.75)
     siidx_hi = _find_nearest(wavelengthArray, 10829)
 
-    crosstalkRange = np.linspace(-0.25, 0.25, 50)
+    crosstalkRange = np.linspace(-0.15, 0.15, 50)
     correlationQV = np.zeros(50)
     correlationUV = np.zeros(50)
     for i in tqdm.tqdm(range(len(crosstalkRange)), desc="Determining V->Q,U Crosstalk..."):
