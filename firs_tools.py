@@ -2096,13 +2096,13 @@ def hazelPrep(inFile, outPath,
 
     f = h5py.File(os.path.join(outPath, "10830_inversionReady.h5"), mode="w")
     db_stokes = f.create_dataset('stokes', stokes_3d.shape, dtype=np.float64)
-    db_stokes[:] = stokes_3d
+    db_stokes[:] = np.nan_to_num(stokes_3d)
     db_sigma = f.create_dataset('sigma', sigma_3d.shape, dtype=np.float64)
-    db_sigma[:] = sigma_3d
+    db_sigma[:] = np.nan_to_num(sigma_3d)
     db_los = f.create_dataset('LOS', los_3d.shape, dtype=np.float64)
-    db_los[:] = los_3d
+    db_los[:] = np.nan_to_num(los_3d)
     db_boundary = f.create_dataset('boundary', boundary_3d.shape, dtype=np.float64)
-    db_boundary[:] = boundary_3d
+    db_boundary[:] = np.nan_to_num(boundary_3d)
     f.close()
 
     np.savetxt(os.path.join(outPath, "10830_inversionReady.wavelength"),
