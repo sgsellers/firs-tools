@@ -2083,15 +2083,12 @@ def hazelPrep(inFile, outPath,
             # No Q profiles
             if (len(siStokes[siStokes >= limit]) < 2) & (len(heStokes[heStokes >= limit]) < 2):
                 stokes_3d[i, :, j] = np.zeros(nlam)
-                sigma_3d[i, :, j] = np.zeros(nlam)
             # No He I Q Profile, but Si I profile
             elif (len(siStokes[siStokes >= limit]) >= 2) & (len(heStokes[heStokes >= limit]) < 2):
                 stokes_3d[i, heidx_lo:heidx_hi, j] = 0
-                sigma_3d[i, heidx_lo:heidx_hi, j] = 0
             # Rare case, He I Q Profile, but no Si I Profile
             elif (len(siStokes[siStokes >= limit]) < 2) & (len(siStokes[siStokes >= limit]) >= 2):
                 stokes_3d[i, siidx_lo:siidx_hi, j] = 0
-                sigma_3d[i, siidx_lo:siidx_hi, j] = 0
             # Default case is to just leave it alone, so no else case needed.
 
     f = h5py.File(os.path.join(outPath, "10830_inversionReady.h5"), mode="w")
