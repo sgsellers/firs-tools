@@ -1351,7 +1351,8 @@ def repackHazel(
         ch_key = [ch_key]
 
     wavelength = h5File[sp_key]['wavelength'][:]
-
+    print(nx,dy)
+    print(ny,dy)
     chParams = [
         'Bx', 'Bx_err',
         'By', 'By_err',
