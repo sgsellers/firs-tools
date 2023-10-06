@@ -1344,9 +1344,9 @@ def repackHazel(
 
     h5File = h5py.File(h5File, 'r')
     if not nx:
-        nx = int((fitsFile[1].header['NAXIS3'] - 1) / binSlits)
+        nx = int((fitsFile[1].header['NAXIS3']) / binSlits) - 1
     if not ny:
-        ny = int((fitsFile[1].header['NAXIS2'] - 1) / binSpatial)
+        ny = int((fitsFile[1].header['NAXIS2']) / binSpatial) - 1
     if type(ch_key) == str:
         ch_key = [ch_key]
 
