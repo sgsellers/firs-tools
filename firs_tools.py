@@ -1337,8 +1337,8 @@ def repackHazel(
         Binning factor used along the slit
     """
     fitsFile = fits.open(fitsFile)
-    dx = fitsFile[1].header['CDELT1'] * binSlits
-    dy = fitsFile[1].header['CDELT2'] * binSpatial
+    dy = fitsFile[1].header['CDELT1'] * binSlits
+    dx = fitsFile[1].header['CDELT2'] * binSpatial
 
     initFile = h5py.File(initFile, "r")
 
