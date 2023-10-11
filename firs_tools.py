@@ -1852,7 +1852,7 @@ def plotHazelResults(fitsFile):
     photoT = photosphere['T'][tauZero, :, :]
     chromoBeta = chromosphere['beta'][0, :, :]
     photoV = photosphere['v'][12, :, :] - np.nanmean(photosphere['v'][tauZero, :, :])
-    chromoV = chromosphere['v'][0, :, :] - np.nanmean(chromosphere['v'][tauZero, :, :])
+    chromoV = chromosphere['v'][0, :, :] - np.nanmean(photosphere['v'][tauZero, :, :])
     chromoTau = chromosphere['tau'][0, :, :]
 
     fig = plt.figure(figsize=(15, 10))
