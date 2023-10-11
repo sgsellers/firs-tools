@@ -1876,7 +1876,7 @@ def plotHazelResults(fitsFile):
     pBmap = ax_pB.imshow(
         photoB,
         cmap='Purples',
-        extents=plotExts,
+        extent=plotExts,
         aspect='auto',
         vmin=0,
         vmax=np.nanmean(photoB) + 3*np.nanstd(photoB)
@@ -1889,7 +1889,7 @@ def plotHazelResults(fitsFile):
     cBmap = ax_cB.imshow(
         chromoB,
         cmap='Purples',
-        extents=plotExts,
+        extent=plotExts,
         aspect='auto',
         vmin=0,
         vmax=np.nanmean(photoB) + 2 * np.nanstd(photoB)
@@ -1904,7 +1904,7 @@ def plotHazelResults(fitsFile):
     pTmap = ax_pT.imshow(
         photoT,
         cmap='inferno',
-        extents=plotExts,
+        extent=plotExts,
         aspect='auto',
         vmin=np.nanmean(photoT) - 3 * np.nanstd(photoT),
         vmax=np.nanmean(photoT) + 3 * np.nanstd(photoT)
@@ -1917,7 +1917,7 @@ def plotHazelResults(fitsFile):
     cBetmap = ax_cBet.imshow(
         chromoBeta,
         cmap='inferno',
-        extents=plotExts,
+        extent=plotExts,
         aspect='auto',
         vmin=np.nanmean(chromoBeta) - 3 * np.nanstd(chromoBeta),
         vmax=np.nanmean(chromoBeta) + 3 * np.nanstd(chromoBeta)
@@ -1932,7 +1932,7 @@ def plotHazelResults(fitsFile):
     pVmap = ax_pV.imshow(
         photoV,
         cmap='seismic',
-        extents=plotExts,
+        extent=plotExts,
         aspect='auto',
         vmin=np.nanmean(photoV) - 5 * np.nanstd(photoV),
         vmax=np.nanmean(photoV) + 5 * np.nanstd(photoV)
@@ -1945,7 +1945,7 @@ def plotHazelResults(fitsFile):
     cVmap = ax_cV.imshow(
         chromoV,
         cmap='seismic',
-        extents=plotExts,
+        extent=plotExts,
         aspect='auto',
         vmin=np.nanmean(chromoV) - 5 * np.nanstd(chromoV),
         vmax=np.nanmean(chromoV) + 5 * np.nanstd(chromoV)
@@ -1960,7 +1960,7 @@ def plotHazelResults(fitsFile):
     chsqmap = ax_chisq.imshow(
         chisq,
         cmap='viridis',
-        extents=plotExts,
+        extent=plotExts,
         aspect='auto',
         vmin=0,
         vmax=5*np.nanmedian(chisq)
@@ -1973,7 +1973,7 @@ def plotHazelResults(fitsFile):
     taumap = ax_cTau.imshow(
         chromoTau,
         cmap='cividis',
-        extents=plotExts,
+        extent=plotExts,
         aspect='auto',
         vmin=np.nanmean(chromoTau) - 3 * np.nanstd(chromoTau),
         vmax=np.nanmean(chromoTau) + 3 * np.nanstd(chromoTau)
