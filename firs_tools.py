@@ -1835,7 +1835,7 @@ def plotHazelResults(fitsFile):
         chisq_idx += 1
     chisq = fitsFile[chisq_idx].data
 
-    tauZero = list(photosphere).index(np.abs(photosphere['logTau']).min())
+    tauZero = list(photosphere['logTau']).index(np.abs(photosphere['logTau']).min())
 
     plotExts = [0, fitsFile[0].header['FOVY'], 0, fitsFile[0].header['FOVX']]
 
