@@ -1007,7 +1007,7 @@ def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
     return crosstalkCoefficients
 
 
-def firs_coordinate_conversion(raw_file):
+def firs_coordinate_conversion(raw_file, correctTime=False):
     """Converts telescope Stonyhurst to Helioprojective Coordinates.
     I should be able to do this with the Alt-Az coordinates in the sav file, but it doesn't appear to work out.
     Instead, we need a raw firs file, as this contains the DST_SLAT and DST_SLNG keywords.
@@ -1025,6 +1025,9 @@ def firs_coordinate_conversion(raw_file):
         Guider angle minus the 13.3 degree offset
     date: str
         String with the date from header. Used elsewhere.
+    correctTime : bool
+        Older FIRS data recorded time in local time. Newer is UTC. If true, updates datetime to UTC.
+        If False, assumes that the correct UTC time is used in FIRS data.
     """
 
     raw_hdr = fits.open(raw_file)[0].header
@@ -1033,6 +1036,9 @@ def firs_coordinate_conversion(raw_file):
     rotation_angle = raw_hdr['DST_GDRN'] - 13.3  # 13.3 is the offset of the DST guider head to solar north
     # There may still be 90 degree rotations, or other translations
     obstime = raw_hdr['OBS_STAR']
+    if correctTime:
+        obstime = np.datetime64(obstime) + _correct_datetimes(obstime)
+        obstime = str(obstime)
     date = raw_hdr['DATE_OBS'].replace('/', '-')
     stony_coord = SkyCoord(
         stony_lon * u.deg,
@@ -1047,7 +1053,9 @@ def firs_coordinate_conversion(raw_file):
 
 
 # noinspection PyTypeChecker
-def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation, date, dx, dy, exptime, coadd):
+def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
+                       rotation, date, dx, dy, exptime, coadd,
+                       correctTime=False):
     """Helper function that constructs HDUList for packaging to a final level 1.5 data product
     Parameters:
     -----------
@@ -1071,6 +1079,9 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
         time for single exposure
     coadd : float
         number of coadds to determine total exptime.
+    correctTime : bool
+        Older FIRS data recorded time in local time. Newer is UTC. If true, updates datetime to UTC.
+        If False, assumes that the correct UTC time is used in FIRS data.
 
     Returns:
     --------
@@ -1086,7 +1097,10 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
         int(1000 * 60 * 60 * meta_info['ttime'][-1]), 'ms'
     )
 
-    utc_offset = _correct_datetimes(t0)
+    if correctTime:
+        utc_offset = _correct_datetimes(t0)
+    else:
+        utc_offset = np.timedelta64(0,"s")
 
     t0 += utc_offset
     t1 += utc_offset
@@ -1205,8 +1219,8 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates, rotation,
 
     return hdulist
 
-def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
-                 dx=0.3, dy=0.15, exptime=125, coadd=10, plot=False, vquCrosstalk=True):
+def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0.15,
+                 exptime=125, coadd=10, plot=False, vquCrosstalk=True, correctTime=False):
     """This function converts FIRS .dat files to level 1.5 fits files with a wavelength array, time array, and corrected
     for fringeing. You will require a map containing a flat field that has been processed as a science map by the FIRS
     IDL pipeline.
@@ -1235,6 +1249,9 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
         If true, attempts to correct for V -> Q, U crosstalk via linear correlation coefficient.
         If false, no correction is required.
         If vquCrosstalk is a list of floats, these are taken to be the [V->Q, V->U] crosstalk values.
+    correctTime : bool
+        Older FIRS data recorded time in local time. Newer is UTC. If true, updates datetime to UTC.
+        If False, assumes that the correct UTC time is used in FIRS data.
 
     Returns:
     --------
@@ -1262,7 +1279,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
     #V --> Q, U Crosstalk correction
     if type(vquCrosstalk) == bool:
         if vquCrosstalk:
-            coeffCrosstalk = firs_vqu_crosstalk(firs_data, firs_waves)
+            coeffCrosstalk = firs_vqu_crosstalk(firs_data, firs_waves, plot=plot)
         else:
             coeffCrosstalk = [0, 0]
     else:
@@ -1275,7 +1292,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
     firs_data[:, 1, :, :] = firs_data[:, 1, :, :] + coeffCrosstalk[0] * firs_data[:, 3, :, :]
     firs_data[:, 2, :, :] = firs_data[:, 2, :, :] + coeffCrosstalk[0] * firs_data[:, 3, :, :]
 
-    coordinates, crotan, date = firs_coordinate_conversion(raw_file)
+    coordinates, crotan, date = firs_coordinate_conversion(raw_file, correctTime=correctTime)
 
     print("Writing FIRS Level-1.5 fits file.")
     hdulist = firs_construct_hdu(
@@ -1288,7 +1305,8 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
         dx,
         dy,
         exptime,
-        coadd
+        coadd,
+        correctTime=correctTime
     )
 
     hdulist.writeto(outname, overwrite=True)
@@ -1300,7 +1318,8 @@ def repackHazel(
         ch_key='ch1', ph_key='ph1', sp_key='he',
         translation=False,
         binSlits=1,
-        binSpatial=1
+        binSpatial=2,
+        overviewPlot=True
 ):
     """Master function to repack h5 output from Hazel2 code to level-2 fits file for archiving and distribution.
     Currently defaults save only the final cycle of the inversion, and the 0th randomization index.
@@ -1335,6 +1354,9 @@ def repackHazel(
         Binning factor used in the rastering direction (i.e., number of slits summed)
     binSpatial : int
         Binning factor used along the slit
+    overviewPlot : bool
+        If true (default), creates an overview plot of Hazel results for the chromosphere
+        and photosphere at tau=0
     """
     fitsFile = fits.open(fitsFile)
     dy = fitsFile[1].header['CDELT1'] * binSlits
@@ -1771,13 +1793,228 @@ def repackHazel(
     if nx == fitsFile[1].header['NAXIS3'] - 1:
         fits.append(saveName, ext.data, ext.header)
 
+    if overviewPlot:
+        plotHazelResults(fits)
+
     return
 
+def plotHazelResults(fitsFile):
+    """Plots Hazel results from a level-2 fits HDUList.
+
+    Parameters:
+    -----------
+    fitsFile : Astropy FITS HSUList object
+
+    """
+
+    params = {
+        "savefig.dpi":300,
+        "axes.labelsize":12,
+        "axes.labelweight":"bold",
+        "axes.titleweight":"bold",
+        "figure.titleweight":"bold",
+        "axes.titlesize":14,
+        "font.size":12,
+        "legend.fontsize":12,
+        "font.family":"serif",
+        "image.origin":"lower"
+    }
+    plt.rcParams.update(params)
+
+    chromosphere = fitsFile[1].data
+
+    photosphere_idx = 2
+    while "PHOTOSPHERE" not in fitsFile[photosphere_idx].header['EXTNAME']:
+        photosphere_idx += 1
+    photosphere = fitsFile[photosphere_idx].data
+
+    chisq_idx = -3
+    while "CHISQ" not in fitsFile[chisq_idx].header['EXTNAME']:
+        chisq_idx += 1
+    chisq = fitsFile[chisq_idx].data
+
+    tauZero = list(photosphere).index(np.abs(photosphere['logTau']).min())
+
+    plotExts = [0, fitsFile[0].header['FOVY'], 0, fitsFile[0].header['FOVX']]
+
+    photoB = np.sqrt(
+        photosphere['Bz'][tauZero, :, :]**2 +
+        photosphere['By'][tauZero, :, :]**2 +
+        photosphere['Bx'][tauZero, :, :]**2
+    )
+    chromoB = np.sqrt(
+        chromosphere['Bz'][0, :, :]**2 +
+        chromosphere['By'][0, :, :]**2 +
+        chromosphere['Bx'][0, :, :]**2
+    )
+    photoT = photosphere['T'][tauZero, :, :]
+    chromoBeta = chromosphere['beta'][0, :, :]
+    photoV = photosphere['v'][12, :, :] - np.nanmean(photosphere['v'][tauZero, :, :])
+    chromoV = chromosphere['v'][0, :, :] - np.nanmean(chromosphere['v'][tauZero, :, :])
+    chromoTau = chromosphere['tau'][0, :, :]
+
+    fig = plt.figure(figsize=(15, 10))
+    gs = fig.add_gridspec(ncols=4, nrows=2, hspace=0.2, wspace=0.4)
+
+    ax_pB = fig.add_subplot(gs[0, 0])
+    ax_cB = fig.add_subplot(gs[1, 0])
+
+    ax_pT = fig.add_subplot(gs[0, 1])
+    ax_cBet = fig.add_subplot(gs[1, 1])
+
+    ax_pV = fig.add_subplot(gs[0, 2])
+    ax_cV = fig.add_subplot(gs[1, 2])
+
+    ax_chisq = fig.add_subplot(gs[0, 3])
+    ax_cTau = fig.add_subplot(gs[1, 3])
+
+    # Populating....
+    # B First
+
+    pBmap = ax_pB.imshow(
+        photoB,
+        cmap='Purples',
+        extents=plotExts,
+        aspect='auto',
+        vmin=0,
+        vmax=np.nanmean(photoB) + 3*np.nanstd(photoB)
+    )
+    plt.colorbar(mappable=pBmap, ax=ax_pB)
+    ax_pB.set_title("|B| [Gauss]")
+    ax_pB.set_ylabel("Extent [arcseconds]")
+    ax_pB.set_xticks([])
+
+    cBmap = ax_cB.imshow(
+        chromoB,
+        cmap='Purples',
+        extents=plotExts,
+        aspect='auto',
+        vmin=0,
+        vmax=np.nanmean(photoB) + 2 * np.nanstd(photoB)
+    )
+    plt.colorbar(mappable=cBmap, ax=ax_cB)
+    ax_cB.set_title("|B| [Gauss]")
+    ax_cB.set_ylabel("Extent [arcseconds]")
+    ax_cB.set_xlabel("Extent [arcseconds]")
+
+    # Now temp/Beta
+
+    pTmap = ax_pT.imshow(
+        photoT,
+        cmap='inferno',
+        extents=plotExts,
+        aspect='auto',
+        vmin=np.nanmean(photoT) - 3 * np.nanstd(photoT),
+        vmax=np.nanmean(photoT) + 3 * np.nanstd(photoT)
+    )
+    plt.colorbar(mappable=pTmap, ax=ax_pT)
+    ax_pT.set_title("T [K]")
+    ax_pT.set_xticks([])
+    ax_pT.set_yticks([])
+
+    cBetmap = ax_cBet.imshow(
+        chromoBeta,
+        cmap='inferno',
+        extents=plotExts,
+        aspect='auto',
+        vmin=np.nanmean(chromoBeta) - 3 * np.nanstd(chromoBeta),
+        vmax=np.nanmean(chromoBeta) + 3 * np.nanstd(chromoBeta)
+    )
+    plt.colorbar(mappable=cBetmap, ax=ax_cBet)
+    ax_cBet.set_title("Plasma-$\\beta$")
+    ax_cBet.set_yticks([])
+    ax_cBet.set_xlabel("Extent [arcseconds]")
+
+    # Velocities
+
+    pVmap = ax_pV.imshow(
+        photoV,
+        cmap='seismic',
+        extents=plotExts,
+        aspect='auto',
+        vmin=np.nanmean(photoV) - 5 * np.nanstd(photoV),
+        vmax=np.nanmean(photoV) + 5 * np.nanstd(photoV)
+    )
+    plt.colorbar(mappable=pVmap, ax=ax_pV)
+    ax_pV.set_title("v [km/s]")
+    ax_pV.set_xticks([])
+    ax_pV.set_yticks([])
+
+    cVmap = ax_cV.imshow(
+        chromoV,
+        cmap='seismic',
+        extents=plotExts,
+        aspect='auto',
+        vmin=np.nanmean(chromoV) - 5 * np.nanstd(chromoV),
+        vmax=np.nanmean(chromoV) + 5 * np.nanstd(chromoV)
+    )
+    plt.colorbar(mappable=cVmap, ax=ax_cV)
+    ax_cV.set_title("v [km/s]")
+    ax_cV.set_yticks([])
+    ax_cV.set_xlabel("Extent [arcseconds]")
+
+    # Chisq and tau
+
+    chsqmap = ax_chisq.imshow(
+        chisq,
+        cmap='viridis',
+        extents=plotExts,
+        aspect='auto',
+        vmin=0,
+        vmax=5*np.nanmedian(chisq)
+    )
+    plt.colorbar(mappable=chsqmap, ax=ax_chisq)
+    ax_chisq.set_title("$\\chi^2$")
+    ax_chisq.set_xticks([])
+    ax_chisq.set_yticks([])
+
+    taumap = ax_cTau.imshow(
+        chromoTau,
+        cmap='cividis',
+        extents=plotExts,
+        aspect='auto',
+        vmin=np.nanmean(chromoTau) - 3 * np.nanstd(chromoTau),
+        vmax=np.nanmean(chromoTau) + 3 * np.nanstd(chromoTau)
+    )
+    plt.colorbar(mappable=taumap, ax=ax_cTau)
+    ax_cTau.set_title("$\\tau$")
+    ax_cTau.set_yticks([])
+    ax_cTau.set_xlabel("Extent [arcseconds]")
+
+    fig.suptitle("SIR Photospheric ($\\tau=1$) + Hazel Chromospheric Inversion Summary")
+    fig.text(
+        0.05, 0.7,
+        "Photospheric Fit\nParameters [Si I 10825]\n________",
+        rotation=90,
+        weight='bold',
+        ha='center',
+        va='center',
+        fontsize=16
+    )
+    fig.text(
+        0.05, 0.28,
+        "Chromospheric Fit\nParameterss [He I 10830]\n________",
+        rotation=90,
+        weight='bold',
+        ha='center',
+        va='center',
+        fontsize=16
+    )
+
+    dtstr = str(
+        np.datetime64(
+            fitsFile[0].header['STARTOBS'],
+            "s"
+        )
+    ).replace("-","").replace(":","").replace("T","_")
+    savestr = "hazel_inversion_summary_"+dtstr+".png"
+    plt.savefig(savestr, bbox_inches='tight')
+    return
 
 def hazelPrep(inFile, outPath,
               xRange=None, yRange=None, waveRange=None,
               translation=False,
-              stokesLimit=3, binSlits=1, binSpatial=1):
+              stokesLimit=3, binSlits=1, binSpatial=2):
     """NOTE: Requires the Hazel package to be installed!
     Writes initial files for Hazel inversions from a level-1.5 FIRS fits file.
     This includes:
