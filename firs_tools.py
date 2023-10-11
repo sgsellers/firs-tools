@@ -1794,7 +1794,7 @@ def repackHazel(
         fits.append(saveName, ext.data, ext.header)
 
     if overviewPlot:
-        plotHazelResults(fits)
+        plotHazelResults(saveName)
 
     return
 
@@ -1820,6 +1820,8 @@ def plotHazelResults(fitsFile):
         "image.origin":"lower"
     }
     plt.rcParams.update(params)
+
+    fitsFile = fits.open(fitsFile)
 
     chromosphere = fitsFile[1].data
 
