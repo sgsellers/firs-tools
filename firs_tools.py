@@ -2242,7 +2242,6 @@ def hazelPrep(inFile, outPath,
         ], axis=-1
     )
     if translation:
-    if translation:
         norm_cube = np.flip(np.rot90(norm_cube), axis=0)
     # Slit positions are axis 1.
     # Fudge along slit to 40:-40 to avoid hairlines.
