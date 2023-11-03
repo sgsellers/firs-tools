@@ -1037,7 +1037,7 @@ def firs_coordinate_conversion(raw_file, correctTime=False):
     # There may still be 90 degree rotations, or other translations
     obstime = raw_hdr['OBS_STAR']
     if correctTime:
-        obstime = np.datetime64(obstime) + _correct_datetimes(obstime)
+        obstime = np.datetime64(obstime) + _correct_datetimes(np.datetime64(obstime))
         obstime = str(obstime)
     date = raw_hdr['DATE_OBS'].replace('/', '-')
     stony_coord = SkyCoord(
@@ -2241,6 +2241,7 @@ def hazelPrep(inFile, outPath,
         0:60
         ], axis=-1
     )
+    if translation:
     if translation:
         norm_cube = np.flip(np.rot90(norm_cube), axis=0)
     # Slit positions are axis 1.
