@@ -1448,15 +1448,13 @@ def repackHazel(
     # Otherwise, we have no way of knowing what the start/end times are.
     # This will be fixed when the Hazel prep routines are fixed and incorporated into firs-tools.
     if translation:
-        if nx != fitsFile[1].header['NAXIS3'] - 1:
-            del ext0.header['STARTOBS']
-            del ext0.header['DATE_END']
-            del ext0.header['ENDOBS']
+        del ext0.header['STARTOBS']
+        del ext0.header['DATE_END']
+        del ext0.header['ENDOBS']
     else:
-        if ny != fitsFile[1].header['NAXIS2'] - 1:
-            del ext0.header['STARTOBS']
-            del ext0.header['DATE_END']
-            del ext0.header['ENDOBS']
+        del ext0.header['STARTOBS']
+        del ext0.header['DATE_END']
+        del ext0.header['ENDOBS']
     del ext0.header['BTYPE']
     del ext0.header['BUNIT']
     ext0.header['FOVX'] = (nx * dx, 'arcsec')
