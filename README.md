@@ -6,7 +6,7 @@ For now, it remains separate as the code is designed to sit on the end of succes
 
 For now, the three functions anyone reading should concern themselves with are firs_to_fits, hazelPrep, and repackHazel.
 
-# FIRS_TO_FITS
+# firs_to_fits
 
 This is the Level-1 to 1.5 pipeline. It corrects for fringes, prefilter curvature, linear trends of Stokes-QUV with wavelength, performs a wavelength calibration, corrects for polarization crosstalk in the V->Q, U direction (but not vice versa until we upgrade the LCVRS), and packs the fixed file into fits format.
 
