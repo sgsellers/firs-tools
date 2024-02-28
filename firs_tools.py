@@ -868,8 +868,6 @@ def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5, plot=True):
             fill_value='extrapolate'
         )(map_waves)
 
-    np.save("fringe_template.npy", fringe_template)
-
     fringe_corrected_map = np.zeros(map_data.shape)
 
     fringe_corrected_map[:, 0, :, :] = map_data[:, 0, :, :]
