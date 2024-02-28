@@ -1071,10 +1071,12 @@ def firs_deskew(flat_map_fname, lineIndices=[188, 254]):
     """
     # Only the Si Line
     flat_map = read_firs(flat_map_fname)[:, 0, :, lineIndices[0]:lineIndices[1]]
+    print(flat_map.shape)
     core_position = _find_nearest(
         flat_map[int(flat_map.shape[0] / 2), :],
         flat_map[int(flat_map.shape[0] / 2), :].min()
     )
+    print(core_position)
     skews = spex.spectral_skew(flat_map[:, core_position - 7: core_position + 5])
     return skews
 
