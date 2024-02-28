@@ -1,3 +1,5 @@
+from . import spectraTools as spex
+
 from astropy.coordinates import SkyCoord
 import astropy.io.fits as fits
 import astropy.units as u
@@ -20,7 +22,7 @@ import scipy.integrate as scinteg
 import scipy.interpolate as scinterp
 from scipy.io import readsav
 from scipy.optimize import curve_fit
-import scipy.stats as stats
+import scipy.ndimage as scind
 
 from sunpy.coordinates import frames
 
@@ -774,11 +776,11 @@ def firs_prefilter_correction(firs_data, wavelength_array, degrade_to=50, rollin
         for i in tqdm.tqdm(range(firs_data.shape[0]), desc="Applying Prefilter Shape..."):
             for j in range(firs_data.shape[2]):
                 firs_data_corr[i, 0, j, :] = firs_data[i, 0, j, :] / slit_pfc[j, :]
-                qtmp = firs_data[i, 1, j, :] / slit_pfc[j, :] # firs_data_corr[i, 0, j, :]
+                qtmp = firs_data[i, 1, j, :] / slit_pfc[j, :]  # firs_data_corr[i, 0, j, :]
                 firs_data_corr[i, 1, j, :] = linear_spectral_tilt_correction(wavelength_array, qtmp)
-                utmp = firs_data[i, 2, j, :] / slit_pfc[j, :] # firs_data_corr[i, 0, j, :]
+                utmp = firs_data[i, 2, j, :] / slit_pfc[j, :]  # firs_data_corr[i, 0, j, :]
                 firs_data_corr[i, 2, j, :] = linear_spectral_tilt_correction(wavelength_array, utmp)
-                vtmp = firs_data[i, 3, j, :] / slit_pfc[j, :] # firs_data_corr[i, 0, j, :]
+                vtmp = firs_data[i, 3, j, :] / slit_pfc[j, :]  # firs_data_corr[i, 0, j, :]
                 firs_data_corr[i, 3, j, :] = linear_spectral_tilt_correction(wavelength_array, vtmp)
     if return_pfcs:
         return firs_data_corr, slit_pfc
@@ -873,16 +875,22 @@ def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5, plot=True):
     for i in tqdm.tqdm(range(fringe_corrected_map.shape[0]), desc="Applying Fringe Correction..."):
         for j in range(3):
             for k in range(fringe_corrected_map.shape[2]):
-                map_med = np.nanmedian(map_data[i, j + 1, k, :50])
-                fringe_med = np.nanmedian(fringe_template[j, k, :50])
+                # map_med = np.nanmedian(map_data[i, j + 1, k, :50])
+                # fringe_med = np.nanmedian(fringe_template[j, k, :50])
 
-                corr_factor = fringe_med - map_med
+                # corr_factor = fringe_med - map_med
+                # Pretty sure these should be divided off, not subtracted. Gonna give it a shot.
+                # Will revert if necessary
+                fringe_corrected_map[i, j + 1, k, :] = (map_data[i, j + 1, k, :] /
+                                                        (fringe_template[j, k, :] /
+                                                         np.nanmedian(fringe_template[j, k, :])))
 
-                fringe_corr = fringe_template[j, k, :] - corr_factor
+                # fringe_corr = fringe_template[j, k, :] - corr_factor
 
-                fringe_corrected_map[i, j + 1, k, :] = map_data[i, j + 1, k, :] - fringe_corr
+                # fringe_corrected_map[i, j + 1, k, :] = map_data[i, j + 1, k, :] - fringe_corr
 
     return fringe_corrected_map
+
 
 def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
     """Estimates crosstalk in the V->Q, U direction. This method assumes that:
@@ -948,7 +956,6 @@ def firs_vqu_crosstalk(dataCube, wavelengthArray, plot=True):
 
         correlationQV[i] = np.nansum(s1q * s2v) / np.sqrt(np.nansum(s1q**2) * np.nansum(s2v**2))
         correlationUV[i] = np.nansum(s1u * s2v) / np.sqrt(np.nansum(s1u ** 2) * np.nansum(s2v ** 2))
-
 
     interp_range = np.linspace(crosstalkRange[0], crosstalkRange[-1], 1000)
     qv_interp = scinterp.interp1d(
@@ -1052,6 +1059,26 @@ def firs_coordinate_conversion(raw_file, correctTime=False):
     return helio_coord, rotation_angle, date
 
 
+def firs_deskew(flat_map_fname, lineIndices=[188, 254]):
+    """
+    Determines spectral skew along slit from flat map, and returns array of shift values
+    :param flat_map_fname: str
+        path to flat map
+    :param lineIndices: list
+        Low and high index for Si I spectral line, or other strong spectral line
+    :return skews: numpy.ndarray
+        Array of shifts for deskewing of FIRS data
+    """
+    # Only the Si Line
+    flat_map = read_firs(flat_map_fname)[:, 0, :, lineIndices[0]:lineIndices[1]]
+    core_position = _find_nearest(
+        flat_map[int(flat_map.shape[0] / 2), :],
+        flat_map[int(flat_map.shape[0] / 2), :].min()
+    )
+    skews = spex.spectral_skew(flat_map[:, core_position - 7: core_position + 5])
+    return skews
+
+
 # noinspection PyTypeChecker
 def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
                        rotation, date, dx, dy, exptime, coadd,
@@ -1100,13 +1127,14 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
     if correctTime:
         utc_offset = _correct_datetimes(t0)
     else:
-        utc_offset = np.timedelta64(0,"s")
+        utc_offset = np.timedelta64(0, "s")
 
     t0 += utc_offset
     t1 += utc_offset
 
     ext0 = fits.PrimaryHDU()
     ext0.header['DATE'] = (np.datetime64('now').astype(str), 'File created')
+    ext0.header['ORIGIN'] = 'NMSU/SSOC'
     ext0.header['TELESCOP'] = 'DST'
     ext0.header['INSTRUME'] = 'FIRS'
     ext0.header['DATA_LEV'] = 1.5
@@ -1219,11 +1247,158 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
 
     return hdulist
 
+
+def firs_contstruct_param_hdu(
+        firs_fits,
+        mean_cpl, net_cpl, mean_lpl,
+        vmaps, wmaps,
+        line_names, refwvls, indices
+):
+    """
+    Constructs FITS HDUList of derived Level-1.5 parameters.
+
+    :param firs_fits: str
+        FIRS Level-1.5 file
+    :param mean_cpl: list
+        List of numpy.ndarray of Mean CPL maps
+    :param net_cpl: list
+        List of numpy.ndarray of Net CPL maps
+    :param mean_lpl: list
+        List of numpy.ndarray of Mean LPL maps
+    :param vmaps: list
+        List of numpy.ndarray of LOS V-maps
+    :param wmaps: list
+        List of numpy.ndarray of V-width maps
+    :param line_names: list
+        List of line names
+    :param refwvls: list
+        List of line reference wavelengths
+    :param indices: list
+        List of indices used for analysis of the form [[idxlo1, idxhi1], [idxlo2, idxhi2], ...]
+
+    :return hdulist : astropy.io.fits.HDUList object
+        Nicely formatted HDUList for writing to disk
+    """
+
+    firs_data = fits.open(firs_fits)
+
+    cdelt1 = firs_data[1].header['CDELT1']
+    cdelt2 = firs_data[1].header['CDELT2']
+    ctype1 = firs_data[1].header['CTYPE1']
+    ctype2 = firs_data[1].header['CTYPE2']
+    cunit1 = firs_data[1].header['CUNIT1']
+    cunit2 = firs_data[1].header['CUNIT2']
+    crval1 = firs_data[1].header['CRVAL1']
+    crval2 = firs_data[1].header['CRVAL2']
+    crpix1 = firs_data[1].header['CRPIX1']
+    crpix2 = firs_data[1].header['CRPIX2']
+    crotan = firs_data[1].header['CROTAN']
+
+    crkeys = ['CDELT1', 'CDELT2', 'CTYPE1', 'CTYPE2', 'CUNIT1', 'CUNIT2',
+              'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 'CROTAN']
+
+    crvals = [cdelt1, cdelt2, ctype1, ctype2, cunit1, cunit2, crval1, crval2, crpix1, crpix2, crotan]
+
+    firs_waves = firs_data['lambda-coordinate'].data
+
+    hdulist = []
+
+    ext0 = fits.PrimaryHDU()
+    ext0.header = firs_data[0].header
+    del ext0.header['BTYPE']
+    del ext0.header['BUNIT']
+    ext0.header['PRSTEP5'] = ('POL-ANALYSIS', "firs-tools (S.Sellers")
+    ext0.header['PRSTEP6'] = ('MOMENT-ANALYSIS', 'firs-tools (S.Sellers)')
+    hdulist.append(ext0)
+
+    for i in range(len(mean_cpl)):
+        ext = fits.ImageHDU(np.flipud(np.rot90(mean_cpl[i])))
+        ext.header['EXTNAME'] = 'MEAN-CPL-'+str(i)
+        ext.header['BTYPE'] = 'MEAN CIRCULAR POLARIZATION'
+        ext.header['STARTOBS'] = ext0.header['STARTOBS']
+        ext.header['ENDOBS'] = ext0.header['ENDOBS']
+        for j in range(len(crkeys)):
+            ext.header[crkeys[j]] = crvals[j]
+        ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
+        ext.header['REFWVL'] = refwvls[i]
+        ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][0]], "Upper-bound wavelength for analysis")
+        ext.header['METHOD'] = "Modified Sums"
+        hdulist.append(ext)
+    for i in range(len(net_cpl)):
+        ext = fits.ImageHDU(np.flipud(np.rot90(net_cpl[i])))
+        ext.header['EXTNAME'] = 'NET-CPL-' + str(i)
+        ext.header['BTYPE'] = 'NET CIRCULAR POLARIZATION'
+        ext.header['STARTOBS'] = ext0.header['STARTOBS']
+        ext.header['ENDOBS'] = ext0.header['ENDOBS']
+        for j in range(len(crkeys)):
+            ext.header[crkeys[j]] = crvals[j]
+        ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
+        ext.header['REFWVL'] = refwvls[i]
+        ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][0]], "Upper-bound wavelength for analysis")
+        ext.header['METHOD'] = "Integration"
+        hdulist.append(ext)
+    for i in range(len(mean_lpl)):
+        ext = fits.ImageHDU(np.flipud(np.rot90(mean_lpl[i])))
+        ext.header['EXTNAME'] = 'MEAN-LPL-' + str(i)
+        ext.header['BTYPE'] = 'MEAN LINEAR POLARIZATION'
+        ext.header['STARTOBS'] = ext0.header['STARTOBS']
+        ext.header['ENDOBS'] = ext0.header['ENDOBS']
+        for j in range(len(crkeys)):
+            ext.header[crkeys[j]] = crvals[j]
+        ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
+        ext.header['REFWVL'] = refwvls[i]
+        ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][0]], "Upper-bound wavelength for analysis")
+        ext.header['METHOD'] = "Modified Sums"
+        hdulist.append(ext)
+    for i in range(len(vmaps)):
+        ext = fits.ImageHDU(np.flipud(np.rot90(vmaps[i])))
+        ext.header['EXTNAME'] = 'VLOS-' + str(i)
+        ext.header['BTYPE'] = 'LOS-V'
+        ext.header['BUNIT'] = "km/s"
+        ext.header['STARTOBS'] = ext0.header['STARTOBS']
+        ext.header['ENDOBS'] = ext0.header['ENDOBS']
+        for j in range(len(crkeys)):
+            ext.header[crkeys[j]] = crvals[j]
+        ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
+        ext.header['REFWVL'] = refwvls[i]
+        ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][0]], "Upper-bound wavelength for analysis")
+        ext.header['METHOD'] = "Moment Analysis"
+        hdulist.append(ext)
+    for i in range(len(wmaps)):
+        ext = fits.ImageHDU(np.flipud(np.rot90(wmaps[i])))
+        ext.header['EXTNAME'] = 'VWIDTH-' + str(i)
+        ext.header['BTYPE'] = 'VELOCITY-WIDTH'
+        ext.header['BUNIT'] = "km/s"
+        ext.header['STARTOBS'] = ext0.header['STARTOBS']
+        ext.header['ENDOBS'] = ext0.header['ENDOBS']
+        for j in range(len(crkeys)):
+            ext.header[crkeys[j]] = crvals[j]
+        ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
+        ext.header['REFWVL'] = refwvls[i]
+        ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][0]], "Upper-bound wavelength for analysis")
+        ext.header['METHOD'] = "Moment Analysis"
+        hdulist.append(ext)
+
+    return fits.HDUList(hdulist)
+
+
 def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0.15,
-                 exptime=125, coadd=10, plot=False, vquCrosstalk=True, correctTime=False):
+                 exptime=125, coadd=10, plot=False, vquCrosstalk=True, correctTime=False, momentAnalysis=True):
     """This function converts FIRS .dat files to level 1.5 fits files with a wavelength array, time array, and corrected
     for fringeing. You will require a map containing a flat field that has been processed as a science map by the FIRS
     IDL pipeline.
+
+    2024-02-26: Adding skew correction along slit and higher-order data products
+    Moment analysis will include:
+        ~I,
+        ~LOS-V and
+        ~V-width for Si I, and the two dominant components of He I
+        Will also include QUV_tot for these lines
 
     Parameters:
     -----------
@@ -1252,6 +1427,9 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
     correctTime : bool
         Older FIRS data recorded time in local time. Newer is UTC. If true, updates datetime to UTC.
         If False, assumes that the correct UTC time is used in FIRS data.
+    momentAnalysis : bool or list
+        If Bool, performs moment analysis and stokes integration with default line center values
+        If list, expects line indices of the form [[idxlo1, idxhi1], [idxl02, idxhi2], ...]
 
     Returns:
     --------
@@ -1276,8 +1454,8 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
     # Fringe Cal
     firs_data = firs_fringecorr(firs_data, firs_waves, flat_map_fname, plot=plot)
 
-    #V --> Q, U Crosstalk correction
-    if type(vquCrosstalk) == bool:
+    # V --> Q, U Crosstalk correction
+    if type(vquCrosstalk) is bool:
         if vquCrosstalk:
             coeffCrosstalk = firs_vqu_crosstalk(firs_data, firs_waves, plot=plot)
         else:
@@ -1291,6 +1469,37 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
 
     firs_data[:, 1, :, :] = firs_data[:, 1, :, :] + coeffCrosstalk[0] * firs_data[:, 3, :, :]
     firs_data[:, 2, :, :] = firs_data[:, 2, :, :] + coeffCrosstalk[0] * firs_data[:, 3, :, :]
+
+    spex_skews = firs_deskew(flat_map_fname)
+    print("Deskewing FIRS Data")
+    for i in tqdm.tqdm(range(firs_data.shape[0])):
+        for j in range(firs_data.shape[1]):
+            for k in range(firs_data.shape[2]):
+                firs_data[i, j, k, :] = scind.shift(firs_data[i, j, k, :], spex_skews[k], mode='nearest')
+
+    # Redo Wave Cal with deskewed data
+    firs_waves = firs_wavelength_cal_poly(
+        np.nanmean(firs_data[:, 0, 100:400, :], axis=(0, 1)),
+        plot=plot
+    )
+
+    if type(momentAnalysis) is list:
+        refwvls, indices = firs_refwvls(firs_data, firs_waves, spectralIndices=momentAnalysis)
+        line_names = ['Line-'+str(i) for i in range(len(refwvls))]
+        mean_cpl, mean_lpl, net_cpl, vmaps, wmaps = firs_analysis(firs_data, firs_waves, indices, refwvls)
+    elif momentAnalysis:
+        refwvls, indices = firs_refwvls(firs_data, firs_waves)
+        line_names = ['Si I 10827 A', 'He I 10829 A', 'He I 10830 A']
+        mean_cpl, mean_lpl, net_cpl, vmaps, wmaps = firs_analysis(firs_data, firs_waves, indices, refwvls)
+    else:
+        mean_cpl = []
+        mean_lpl = []
+        net_cpl = []
+        vmaps = []
+        wmaps = []
+        line_names = []
+        refwvls = []
+        indices = []
 
     coordinates, crotan, date = firs_coordinate_conversion(raw_file, correctTime=correctTime)
 
@@ -1310,6 +1519,189 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
     )
 
     hdulist.writeto(outname, overwrite=True)
+
+    # We'll write the parameter maps in a separate file to avoid unneccessarily large file sizes.
+    if len(refwvls) > 0:
+        params_outname = outname.split(".fits")[0] + "_derived_parameter_maps.fits"
+        param_hdulist = firs_contstruct_param_hdu(
+            outname,
+            mean_cpl,
+            net_cpl,
+            mean_lpl,
+            vmaps,
+            wmaps,
+            line_names,
+            refwvls,
+            indices
+        )
+        param_hdulist.writeto(params_outname, overwrite=True)
+    return
+
+
+def firs_analysis(firs_data, firs_wavelengths, analysis_indices, reference_wavelengths):
+    """
+    Performs moment analysis and determines mean circular/linear polarization plus net circular polarization maps
+    for each of the spectral windows given. See Martinez Pillet et. al., 2011 discussion of mean polarizations.
+    For net circular polarization, see Solanki & Montavon 1993.
+    :param firs_data: numpy.ndarray
+        FIRS 4d data of shape (ny, 4, ny, nlambda)
+    :param firs_wavelengths: numpy.ndarray
+        Array of wavelength values of shape nlambda
+    :param analysis_indices: list
+        List of form [[loidx1, hiidx1], [loidx2, hiidx2], ...]
+    :param reference_wavelengths: list
+        List of reference wavelengths, same length as analysis_indices
+    :return mean_cpl: list
+        List of numpy.ndarray mean CPL maps of shape (nx, ny)
+    :return mean_lpl: list
+        List of numpy.ndarray mean LPL maps of shape (nx, ny)
+    :return net_cpl: list
+        List of numpy.ndarray net CPL maps of shape (nx, ny)
+    :return vmaps: list
+        List of numpy.ndarray moment analysis LOS velocity maps of shape (nx, ny)
+    :return wmaps: list
+        List of numpy.ndarray moment analysis velocity width maps of shape (nx, ny)
+    """
+    mean_cont_brightness = np.nanmean(firs_data[:, 0, :, 100:150])
+    qs_cont_values = []
+    for j in range(firs_data.shape[0]):
+        for k in range(firs_data.shape[2]):
+            if np.nanmean(firs_data[j, 0, k, 100:150]) >= 0.8 * mean_cont_brightness:
+                qs_cont_values.append(np.nanmean(firs_data[j, 0, k, 100:150]))
+    continuum_intensity = np.nanmean(np.array(qs_cont_values))
+    mean_cpl = []
+    mean_lpl = []
+    net_cpl = []
+    vmaps = []
+    wmaps = []
+    with tqdm.tqdm(total=len(reference_wavelengths) * firs_data.shape[0] * firs_data.shape[2]) as pbar:
+        for i in range(len(analysis_indices)):
+            cpl_map = np.zeros((firs_data.shape[0], firs_data.shape[2]))
+            lpl_map = np.zeros((firs_data.shape[0], firs_data.shape[2]))
+            ncpl_map = np.zeros((firs_data.shape[0], firs_data.shape[2]))
+            vlos_map = np.zeros((firs_data.shape[0], firs_data.shape[2]))
+            vwid_map = np.zeros((firs_data.shape[0], firs_data.shape[2]))
+            for j in range(firs_data.shape[0]):
+                for k in range(firs_data.shape[2]):
+                    _, v, w = spex.moment_analysis(
+                        firs_wavelengths[analysis_indices[i][0]:analysis_indices[i][1]],
+                        firs_data[j, 0, k, analysis_indices[i][0]:analysis_indices[i][1]],
+                        reference_wavelengths[i]
+                    )
+                    vlos_map[j, k] = v
+                    vwid_map[j, k] = w
+                    cpl_map[j, k] = spex.mean_cpl(
+                        firs_data[j, 3, k, analysis_indices[i][0]:analysis_indices[i][1]],
+                        firs_wavelengths[analysis_indices[i][0]:analysis_indices[i][1]],
+                        reference_wavelengths[i],
+                        continuum_intensity
+                    )
+                    lpl_map[j, k] = spex.mean_lpl(
+                        firs_data[j, 1, k, analysis_indices[i][0]:analysis_indices[i][1]],
+                        firs_data[j, 2, k, analysis_indices[i][0]:analysis_indices[i][1]],
+                        continuum_intensity
+                    )
+                    ncpl_map[j, k] = spex.net_cpl(
+                        firs_data[j, 3, k, analysis_indices[i][0]:analysis_indices[i][1]],
+                        firs_wavelengths[analysis_indices[i][0]:analysis_indices[i][1]]
+                    )
+                    pbar.update(1)
+            mean_cpl.append(cpl_map)
+            mean_lpl.append(lpl_map)
+            net_cpl.append(ncpl_map)
+            vmaps.append(vlos_map)
+            wmaps.append(vwid_map)
+    return mean_cpl, mean_lpl, net_cpl, vmaps, wmaps
+
+
+def firs_refwvls(firs_data, firs_wavelengths, spectralIndices=None):
+    """
+    Determines reference wavelengths of a given spectral line. When spectralIndices are not given, defaults to Si I
+    and two components of He I
+    :param firs_data: numpy.ndarray
+        Corrected datacube
+    :param firs_wavelengths: numpy.ndarray
+        Array of corresponding wavelengths.
+    :param spectralIndices: None or List
+        If list, expects line indices of the form [[idxlo1, idxhi1], [idxl02, idxhi2], ...]
+        If none, uses default positions for Si I and He I
+    :return refwvls: list
+        List of reference wavelengths
+    :return adjustedIndices: list
+        Adjusted list of spectral indices to give an evenly spaced window.
+    """
+    mean_cont_brightness = np.nanmean(firs_data[:, 0, :, 100:150])
+    if type(spectralIndices) is list:
+        # Reference wavelength determinations. From profiles with continuum brighter than 80% of mean
+        refwvls = []
+        adjustedIndices = []
+        for i in range(len(spectralIndices)):
+            mean_wvls = []
+            for j in range(firs_data.shape[0]):
+                for k in range(firs_data.shape[2]):
+                    if np.nanmean(firs_data[j, 0, k, 100:150]) >= 0.8*mean_cont_brightness:
+                        mindx = _find_nearest(
+                            firs_data[j, 0, k, spectralIndices[i][0]:spectralIndices[i][1]],
+                            np.nanmin(firs_data[j, 0, k, spectralIndices[i][0]:spectralIndices[i][1]])
+                        ) + spectralIndices[i][0]
+                        mean_wvls.append(
+                            float(
+                                spex.find_line_core(
+                                    firs_data[j, 0, k, mindx-7:mindx+7],
+                                    wvl=firs_wavelengths[mindx-7:mindx+7]
+                                )
+                            )
+                        )
+            rwvl = np.nanmean(np.array(mean_wvls))
+            mean_dist = np.nanmean(
+                np.abs(
+                    np.array([firs_wavelengths[spectralIndices[i][0]] - rwvl,
+                              firs_wavelengths[spectralIndices[i][1]] - rwvl])
+                )
+            )
+            adjustedIndices.append(
+                [_find_nearest(firs_wavelengths, rwvl - mean_dist),
+                 _find_nearest(firs_wavelengths, rwvl + mean_dist) + 1]
+            )
+            refwvls.append(rwvl)
+    else:
+        # Default line set. Si I 10827, He I 10829, He I 10830
+        # From NIST
+        # The He I 10830 is the weighted avg of the two components
+        labRefwvl = np.array([10827.089, 10829.09115, 10830.30989])
+        wvlOffsets = labRefwvl - labRefwvl[0]
+        indices = [[190, 250], [257, 287], [287, 325]]
+        mean_wvls = []
+        for j in range(firs_data.shape[0]):
+            for k in range(firs_data.shape[2]):
+                if np.nanmean(firs_data[j, 0, k, 100:150]) >= 0.8 * mean_cont_brightness:
+                    mindx = _find_nearest(
+                        firs_data[j, 0, k, indices[0][0]:indices[0][1]],
+                        np.nanmin(firs_data[j, 0, k, indices[0][0]:indices[0][1]])
+                    ) + indices[0][0]
+                    mean_wvls.append(
+                        float(
+                            spex.find_line_core(
+                                firs_data[j, 0, k, mindx - 7:mindx + 7],
+                                wvl=firs_wavelengths[mindx - 7:mindx + 7]
+                            )
+                        )
+                    )
+        sirwvl = np.nanmean(np.array(mean_wvls))
+        refwvls = [sirwvl + i for i in wvlOffsets]
+        adjustedIndices = []
+        for i in range(len(refwvls)):
+            mean_dist = np.nanmean(
+                np.abs(
+                    np.array([firs_wavelengths[indices[i][0]] - refwvls[i],
+                              firs_wavelengths[indices[i][1]] - refwvls[i]])
+                )
+            )
+            adjustedIndices.append(
+                [_find_nearest(firs_wavelengths, refwvls[i] - mean_dist),
+                 _find_nearest(firs_wavelengths, refwvls[i] + mean_dist) + 1]
+            )
+    return refwvls, adjustedIndices
 
 
 def repackHazel(
@@ -1369,7 +1761,7 @@ def repackHazel(
         nx = int((fitsFile[1].header['NAXIS3'] - 1) / binSpatial)
     if not ny:
         ny = int((fitsFile[1].header['NAXIS2'] - 1) / binSlits)
-    if type(ch_key) == str:
+    if type(ch_key) is str:
         ch_key = [ch_key]
 
     wavelength = h5File[sp_key]['wavelength'][:]
@@ -1610,7 +2002,7 @@ def repackHazel(
                 param = photosphere[phParams[i]][:, 0, -1, 0].reshape(nx, ny)
                 for x in range(param.shape[0]):
                     for y in range(param.shape[1]):
-                        if type(param[x, y]) == np.ndarray:
+                        if type(param[x, y]) is np.ndarray:
                             if len(param[x, y]) != 0:
                                 dummy_arr[:, x, y] = param[x, y]
                         else:
@@ -1794,12 +2186,13 @@ def repackHazel(
 
     # And the time array (only if the full X-range is used.)
     if nx == fitsFile[1].header['NAXIS3'] - 1:
-        fits.append(saveName, ext.data, ext.header)
+        fits.append(saveName, fitsFile['time-coordinate'].data, fitsFile['time-coordinate'].header)
 
     if overviewPlot:
         plotHazelResults(saveName)
 
     return
+
 
 def plotHazelResults(fitsFile):
     """Plots Hazel results from a level-2 fits HDUList.
@@ -1811,16 +2204,16 @@ def plotHazelResults(fitsFile):
     """
 
     params = {
-        "savefig.dpi":300,
-        "axes.labelsize":12,
-        "axes.labelweight":"bold",
-        "axes.titleweight":"bold",
-        "figure.titleweight":"bold",
-        "axes.titlesize":14,
-        "font.size":12,
-        "legend.fontsize":12,
-        "font.family":"serif",
-        "image.origin":"lower"
+        "savefig.dpi": 300,
+        "axes.labelsize": 12,
+        "axes.labelweight": "bold",
+        "axes.titleweight": "bold",
+        "figure.titleweight": "bold",
+        "axes.titlesize": 14,
+        "font.size": 12,
+        "legend.fontsize": 12,
+        "font.family": "serif",
+        "image.origin": "lower"
     }
     plt.rcParams.update(params)
 
@@ -2011,10 +2404,11 @@ def plotHazelResults(fitsFile):
             fitsFile[0].header['STARTOBS'],
             "s"
         )
-    ).replace("-","").replace(":","").replace("T","_")
+    ).replace("-", "").replace(":", "").replace("T", "_")
     savestr = "hazel_inversion_summary_"+dtstr+".png"
     plt.savefig(savestr, bbox_inches='tight')
     return
+
 
 def hazelPrep(inFile, outPath,
               xRange=None, yRange=None, waveRange=None,
@@ -2081,21 +2475,21 @@ def hazelPrep(inFile, outPath,
     if fovy == 0:
         fovy = 0.15
 
-    waveidx_lo = _find_nearest(firs_file[5].data, waveRange[0])
-    waveidx_hi = _find_nearest(firs_file[5].data, waveRange[1])
+    waveidx_lo = _find_nearest(firs_file['lambda-coordinate'].data, waveRange[0])
+    waveidx_hi = _find_nearest(firs_file['lambda-coordinate'].data, waveRange[1])
 
     # Approximate spectral line ranges. Hardcoded for now.
     # Scratch that, probably hardcoded forever.
     # They're not going anywhere.
     # Note that these are the indices within the sliced data.
-    siidx_lo = _find_nearest(firs_file[5].data, 10826) - waveidx_lo
-    siidx_hi = _find_nearest(firs_file[5].data, 10828) - waveidx_lo
+    siidx_lo = _find_nearest(firs_file['lambda-coordinate'].data, 10826) - waveidx_lo
+    siidx_hi = _find_nearest(firs_file['lambda-coordinate'].data, 10828) - waveidx_lo
 
-    heidx_lo = _find_nearest(firs_file[5].data, 10828) - waveidx_lo
+    heidx_lo = _find_nearest(firs_file['lambda-coordinate'].data, 10828) - waveidx_lo
     heidx_hi = -1
 
     def binArray(data, axis, binvalue, binfunc):
-        "Bins data along axis by value"
+        """Bins data along axis by value"""
         dims = np.array(data.shape)
         argdims = np.arange(data.ndim)
         argdims[0], argdims[axis] = argdims[axis], argdims[0]
@@ -2104,12 +2498,12 @@ def hazelPrep(inFile, outPath,
             binfunc(
                 np.take(
                     data,
-                    np.arange(int(i*binvalue), int(i*binvalue + binvalue)),
+                    np.arange(int(b*binvalue), int(b*binvalue + binvalue)),
                     0
                 ),
                 0
             )
-            for i in np.arange(dims[axis]//binvalue)
+            for b in np.arange(dims[axis]//binvalue)
         ]
         data = np.array(data).transpose(argdims)
         return data
@@ -2239,9 +2633,9 @@ def hazelPrep(inFile, outPath,
     # using the continuum where the continuum is between 60 < I < 90 percent of the max continuum
     norm_cube = np.nanmean(
         firs_file[1].data[
-        xRange[0]:xRange[1],
-        yRange[0]:yRange[1],
-        0:60
+            xRange[0]:xRange[1],
+            yRange[0]:yRange[1],
+            0:60
         ], axis=-1
     )
     if translation:
@@ -2256,11 +2650,11 @@ def hazelPrep(inFile, outPath,
     # Should avoid sunspots and very brightest points.
     pct_vals = np.percentile(norm_cube, [60, 90])
     for i in range(norm_cube.shape[1]):
-        slice = norm_cube[:, i]
-        if len(slice[(slice >= pct_vals[0]) & (slice <= pct_vals[1])]) < 50:
+        cube_slice = norm_cube[:, i]
+        if len(cube_slice[(cube_slice >= pct_vals[0]) & (cube_slice <= pct_vals[1])]) < 50:
             normValue = np.nanmean(norm_cube[(norm_cube >= pct_vals[0]) & (norm_cube <= pct_vals[1])])
         else:
-            normValue = np.nanmean(slice[(slice >= pct_vals[0]) & (slice <= pct_vals[1])])
+            normValue = np.nanmean(cube_slice[(cube_slice >= pct_vals[0]) & (cube_slice <= pct_vals[1])])
         stokes_i[:, i, :] = (stokes_i[:, i, :] / normValue) * clv_factor[:, i, :]
         stokes_i_noise_region[:, i, :] = (stokes_i_noise_region[:, i, :] / normValue) * clv_factor[:, i, :100]
         stokes_q[:, i, :] = stokes_q[:, i, :] * (clv_factor[:, i, :] / normValue)
@@ -2284,7 +2678,6 @@ def hazelPrep(inFile, outPath,
     stokes_u_noise = np.nanstd(u_noise_slice, axis=-1).reshape(npix)
     stokes_q_noise = np.nanstd(q_noise_slice, axis=-1).reshape(npix)
     stokes_i_noise = np.nanstd(stokes_i_noise_region - 1, axis=-1).reshape(npix)
-
 
     # And the Stokes noise
     sigma_3d = np.zeros(stokes_3d.shape)
@@ -2344,7 +2737,7 @@ def hazelPrep(inFile, outPath,
     f.close()
 
     np.savetxt(os.path.join(outPath, "10830_inversionReady.wavelength"),
-               firs_file[5].data[waveidx_lo:waveidx_hi],
+               firs_file['lambda-coordinate'].data[waveidx_lo:waveidx_hi],
                header='lambda')
 
     f = open(os.path.join(outPath, "10830_inversionReady.weights"), "w")
