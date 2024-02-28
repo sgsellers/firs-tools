@@ -1,4 +1,4 @@
-from . import spectraTools as spex
+import spectraTools as spex
 
 from astropy.coordinates import SkyCoord
 import astropy.io.fits as fits
