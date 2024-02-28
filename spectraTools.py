@@ -847,7 +847,7 @@ def mean_lpl(qspec, uspec, contint):
     return (1/(len(qspec)*contint)) * np.nansum(np.sqrt(qspec**2 + uspec**2))
 
 
-def net_cpl(vspec, vwaves):
+def net_cpl(vspec, vwaves, abs=False):
     """
     Just integrates the V-profile. Solanki & Montavon (1993)
     :param vspec: numpy.ndarray
@@ -857,7 +857,10 @@ def net_cpl(vspec, vwaves):
     :return: float
         Net circular polarizaed light.
     """
-    return scint.simpson(vspec, vwaves)
+    if abs:
+        return scint.simpson(np.abs(vspec), vwaves)
+    else:
+        return scint.simpson(vspec, vwaves)
 
 
 def fit_profile_old(shift, reference_profile, mean_profile):

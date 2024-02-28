@@ -868,6 +868,8 @@ def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5, plot=True):
             fill_value='extrapolate'
         )(map_waves)
 
+    np.save("fringe_template.npy", fringe_template)
+
     fringe_corrected_map = np.zeros(map_data.shape)
 
     fringe_corrected_map[:, 0, :, :] = map_data[:, 0, :, :]
@@ -1252,7 +1254,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
 
 def firs_contstruct_param_hdu(
         firs_fits,
-        mean_cpl, net_cpl, mean_lpl,
+        icpl, mean_cpl, net_cpl, mean_lpl,
         vmaps, wmaps,
         line_names, refwvls, indices
 ):
@@ -1261,6 +1263,8 @@ def firs_contstruct_param_hdu(
 
     :param firs_fits: str
         FIRS Level-1.5 file
+    :param icpl: list
+        List of integrated |V| maps
     :param mean_cpl: list
         List of numpy.ndarray of Mean CPL maps
     :param net_cpl: list
@@ -1313,6 +1317,20 @@ def firs_contstruct_param_hdu(
     ext0.header['PRSTEP6'] = ('MOMENT-ANALYSIS', 'firs-tools (S.Sellers)')
     hdulist.append(ext0)
 
+    for i in range(len(icpl)):
+        ext = fits.ImageHDU(np.flipud(np.rot90(icpl[i])))
+        ext.header['EXTNAME'] = 'INT-ABSCPL-'+str(i)
+        ext.header['BTYPE'] = 'INTEGRATED ABSOLUTE V'
+        ext.header['STARTOBS'] = ext0.header['STARTOBS']
+        ext.header['ENDOBS'] = ext0.header['ENDOBS']
+        for j in range(len(crkeys)):
+            ext.header[crkeys[j]] = crvals[j]
+        ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
+        ext.header['REFWVL'] = refwvls[i]
+        ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][1]], "Upper-bound wavelength for analysis")
+        ext.header['METHOD'] = "Integration"
+        hdulist.append(ext)
     for i in range(len(mean_cpl)):
         ext = fits.ImageHDU(np.flipud(np.rot90(mean_cpl[i])))
         ext.header['EXTNAME'] = 'MEAN-CPL-'+str(i)
@@ -1324,7 +1342,7 @@ def firs_contstruct_param_hdu(
         ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
         ext.header['REFWVL'] = refwvls[i]
         ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
-        ext.header['WAVE2'] = (firs_waves[indices[i][0]], "Upper-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][1]], "Upper-bound wavelength for analysis")
         ext.header['METHOD'] = "Modified Sums"
         hdulist.append(ext)
     for i in range(len(net_cpl)):
@@ -1338,7 +1356,7 @@ def firs_contstruct_param_hdu(
         ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
         ext.header['REFWVL'] = refwvls[i]
         ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
-        ext.header['WAVE2'] = (firs_waves[indices[i][0]], "Upper-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][1]], "Upper-bound wavelength for analysis")
         ext.header['METHOD'] = "Integration"
         hdulist.append(ext)
     for i in range(len(mean_lpl)):
@@ -1352,7 +1370,7 @@ def firs_contstruct_param_hdu(
         ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
         ext.header['REFWVL'] = refwvls[i]
         ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
-        ext.header['WAVE2'] = (firs_waves[indices[i][0]], "Upper-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][1]], "Upper-bound wavelength for analysis")
         ext.header['METHOD'] = "Modified Sums"
         hdulist.append(ext)
     for i in range(len(vmaps)):
@@ -1367,7 +1385,7 @@ def firs_contstruct_param_hdu(
         ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
         ext.header['REFWVL'] = refwvls[i]
         ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
-        ext.header['WAVE2'] = (firs_waves[indices[i][0]], "Upper-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][1]], "Upper-bound wavelength for analysis")
         ext.header['METHOD'] = "Moment Analysis"
         hdulist.append(ext)
     for i in range(len(wmaps)):
@@ -1382,7 +1400,7 @@ def firs_contstruct_param_hdu(
         ext.header['WAVEBAND'] = (line_names[i], "Strongest Line in wavelength range")
         ext.header['REFWVL'] = refwvls[i]
         ext.header['WAVE1'] = (firs_waves[indices[i][0]], "Lower-bound wavelength for analysis")
-        ext.header['WAVE2'] = (firs_waves[indices[i][0]], "Upper-bound wavelength for analysis")
+        ext.header['WAVE2'] = (firs_waves[indices[i][1]], "Upper-bound wavelength for analysis")
         ext.header['METHOD'] = "Moment Analysis"
         hdulist.append(ext)
 
@@ -1488,12 +1506,13 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
     if type(momentAnalysis) is list:
         refwvls, indices = firs_refwvls(firs_data, firs_waves, spectralIndices=momentAnalysis)
         line_names = ['Line-'+str(i) for i in range(len(refwvls))]
-        mean_cpl, mean_lpl, net_cpl, vmaps, wmaps = firs_analysis(firs_data, firs_waves, indices, refwvls)
+        icpl, mean_cpl, mean_lpl, net_cpl, vmaps, wmaps = firs_analysis(firs_data, firs_waves, indices, refwvls)
     elif momentAnalysis:
         refwvls, indices = firs_refwvls(firs_data, firs_waves)
         line_names = ['Si I 10827 A', 'He I 10829 A', 'He I 10830 A']
-        mean_cpl, mean_lpl, net_cpl, vmaps, wmaps = firs_analysis(firs_data, firs_waves, indices, refwvls)
+        icpl, mean_cpl, mean_lpl, net_cpl, vmaps, wmaps = firs_analysis(firs_data, firs_waves, indices, refwvls)
     else:
+        icpl = []
         mean_cpl = []
         mean_lpl = []
         net_cpl = []
@@ -1527,6 +1546,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
         params_outname = outname.split(".fits")[0] + "_derived_parameter_maps.fits"
         param_hdulist = firs_contstruct_param_hdu(
             outname,
+            icpl,
             mean_cpl,
             net_cpl,
             mean_lpl,
@@ -1571,13 +1591,18 @@ def firs_analysis(firs_data, firs_wavelengths, analysis_indices, reference_wavel
             if np.nanmean(firs_data[j, 0, k, 100:150]) >= 0.8 * mean_cont_brightness:
                 qs_cont_values.append(np.nanmean(firs_data[j, 0, k, 100:150]))
     continuum_intensity = np.nanmean(np.array(qs_cont_values))
+    icpl = []
     mean_cpl = []
     mean_lpl = []
     net_cpl = []
     vmaps = []
     wmaps = []
-    with tqdm.tqdm(total=len(reference_wavelengths) * firs_data.shape[0] * firs_data.shape[2]) as pbar:
+    with tqdm.tqdm(
+            total=len(reference_wavelengths) * firs_data.shape[0] * firs_data.shape[2],
+            desc="Constructing Derived Param Maps"
+    ) as pbar:
         for i in range(len(analysis_indices)):
+            icpl_map = np.zeros((firs_data.shape[0], firs_data.shape[2]))
             cpl_map = np.zeros((firs_data.shape[0], firs_data.shape[2]))
             lpl_map = np.zeros((firs_data.shape[0], firs_data.shape[2]))
             ncpl_map = np.zeros((firs_data.shape[0], firs_data.shape[2]))
@@ -1607,13 +1632,19 @@ def firs_analysis(firs_data, firs_wavelengths, analysis_indices, reference_wavel
                         firs_data[j, 3, k, analysis_indices[i][0]:analysis_indices[i][1]],
                         firs_wavelengths[analysis_indices[i][0]:analysis_indices[i][1]]
                     )
+                    icpl_map[j, k] = spex.net_cpl(
+                        firs_data[j, 3, k, analysis_indices[i][0]:analysis_indices[i][1]],
+                        firs_wavelengths[analysis_indices[i][0]:analysis_indices[i][1]],
+                        abs=True
+                    )
                     pbar.update(1)
+            icpl.append(icpl_map)
             mean_cpl.append(cpl_map)
             mean_lpl.append(lpl_map)
             net_cpl.append(ncpl_map)
             vmaps.append(vlos_map)
             wmaps.append(vwid_map)
-    return mean_cpl, mean_lpl, net_cpl, vmaps, wmaps
+    return icpl, mean_cpl, mean_lpl, net_cpl, vmaps, wmaps
 
 
 def firs_refwvls(firs_data, firs_wavelengths, spectralIndices=None):
