@@ -875,19 +875,19 @@ def firs_fringecorr(map_data, map_waves, flat_data_file, lopass=0.5, plot=True):
     for i in tqdm.tqdm(range(fringe_corrected_map.shape[0]), desc="Applying Fringe Correction..."):
         for j in range(3):
             for k in range(fringe_corrected_map.shape[2]):
-                # map_med = np.nanmedian(map_data[i, j + 1, k, :50])
-                # fringe_med = np.nanmedian(fringe_template[j, k, :50])
+                map_med = np.nanmedian(map_data[i, j + 1, k, :50])
+                fringe_med = np.nanmedian(fringe_template[j, k, :50])
 
-                # corr_factor = fringe_med - map_med
+                corr_factor = fringe_med - map_med
                 # Pretty sure these should be divided off, not subtracted. Gonna give it a shot.
                 # Will revert if necessary
-                fringe_corrected_map[i, j + 1, k, :] = (map_data[i, j + 1, k, :] /
-                                                        (fringe_template[j, k, :] /
-                                                         np.nanmedian(fringe_template[j, k, :])))
+                # fringe_corrected_map[i, j + 1, k, :] = (map_data[i, j + 1, k, :] /
+                #                                         (fringe_template[j, k, :] /
+                #                                          np.nanmedian(fringe_template[j, k, :])))
 
-                # fringe_corr = fringe_template[j, k, :] - corr_factor
+                fringe_corr = fringe_template[j, k, :] - corr_factor
 
-                # fringe_corrected_map[i, j + 1, k, :] = map_data[i, j + 1, k, :] - fringe_corr
+                fringe_corrected_map[i, j + 1, k, :] = map_data[i, j + 1, k, :] - fringe_corr
 
     return fringe_corrected_map
 
