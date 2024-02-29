@@ -1487,7 +1487,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
     print("V --> U = ", str(coeffCrosstalk[1]))
 
     firs_data[:, 1, :, :] = firs_data[:, 1, :, :] + coeffCrosstalk[0] * firs_data[:, 3, :, :]
-    firs_data[:, 2, :, :] = firs_data[:, 2, :, :] + coeffCrosstalk[0] * firs_data[:, 3, :, :]
+    firs_data[:, 2, :, :] = firs_data[:, 2, :, :] + coeffCrosstalk[1] * firs_data[:, 3, :, :]
 
     spex_skews = firs_deskew(flat_map_fname)
     print("Deskewing FIRS Data")
