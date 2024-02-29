@@ -1405,8 +1405,9 @@ def firs_contstruct_param_hdu(
     return fits.HDUList(hdulist)
 
 
-def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0.15,
-                 exptime=125, coadd=10, plot=False, vquCrosstalk=True, correctTime=False, momentAnalysis=True):
+def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
+                 dx=0.3, dy=0.15, exptime=125, coadd=10, fringeCutoff=0.5,
+                 plot=False, vquCrosstalk=True, correctTime=False, momentAnalysis=True):
     """This function converts FIRS .dat files to level 1.5 fits files with a wavelength array, time array, and corrected
     for fringeing. You will require a map containing a flat field that has been processed as a science map by the FIRS
     IDL pipeline.
@@ -1470,7 +1471,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname, dx=0.3, dy=0
 
     print("Correcting for fringes via flat map template")
     # Fringe Cal
-    firs_data = firs_fringecorr(firs_data, firs_waves, flat_map_fname, plot=plot)
+    firs_data = firs_fringecorr(firs_data, firs_waves, flat_map_fname, plot=plot, lopass=fringeCutoff)
 
     # V --> Q, U Crosstalk correction
     if type(vquCrosstalk) is bool:
