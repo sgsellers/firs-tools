@@ -246,9 +246,14 @@ def read_firs(firs_file):
     firs_ysize = int(firs_mets['dy_final'] + 1)
 
     firs = np.fromfile(firs_file, dtype=np.float32)
-    firs_xsize = int(len(firs) / 4 / firs_nspex / firs_ysize)
+    if firs_mets['n_slits'] == 1:
+        firs_xsize = int(len(firs) / 4 / firs_nspex / firs_ysize)
 
-    return firs.reshape((firs_xsize, 4, firs_ysize, firs_nspex))
+        return firs.reshape((firs_xsize, 4, firs_ysize, firs_nspex))
+    else:
+        firs_nslits = firs_mets['n_slits']
+        firs_xsize = int(len(firs) / 4 / firs_nspex / firs_ysize / firs_nslits)
+        return firs.reshape((firs_xsize, 4, firs_ysize, firs_nspex, firs_nslits))
 
 
 def select_callback(eclick, erelease):
