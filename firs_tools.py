@@ -1048,6 +1048,8 @@ def firs_coordinate_conversion(raw_file, correctTime=False):
     rotation_angle = raw_hdr['DST_GDRN'] - 13.3  # 13.3 is the offset of the DST guider head to solar north
     # There may still be 90 degree rotations, or other translations
     obstime = raw_hdr['OBS_STAR']
+    coadd = raw_hdr['SUMS']
+    exptime = raw_hdr['EXP_TIME']
     if correctTime:
         obstime = np.datetime64(obstime) + _correct_datetimes(np.datetime64(obstime))
         obstime = str(obstime)
@@ -1061,7 +1063,7 @@ def firs_coordinate_conversion(raw_file, correctTime=False):
     )
 
     helio_coord = stony_coord.transform_to(frames.Helioprojective)
-    return helio_coord, rotation_angle, date
+    return helio_coord, rotation_angle, date, coadd, exptime
 
 
 def firs_deskew(flat_map_fname, lineIndices=[188, 254]):
@@ -1411,7 +1413,7 @@ def firs_contstruct_param_hdu(
 
 
 def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
-                 dx=0.3, dy=0.15, exptime=125, coadd=10, fringeCutoff=0.5,
+                 dx=0.3, dy=0.15, fringeCutoff=0.5,
                  plot=False, vquCrosstalk=True, correctTime=False, momentAnalysis=True):
     """This function converts FIRS .dat files to level 1.5 fits files with a wavelength array, time array, and corrected
     for fringeing. You will require a map containing a flat field that has been processed as a science map by the FIRS
@@ -1526,7 +1528,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
         refwvls = []
         indices = []
 
-    coordinates, crotan, date = firs_coordinate_conversion(raw_file, correctTime=correctTime)
+    coordinates, crotan, date, coadd, exptime = firs_coordinate_conversion(raw_file, correctTime=correctTime)
 
     print("Writing FIRS Level-1.5 fits file.")
     hdulist = firs_construct_hdu(
