@@ -1063,7 +1063,7 @@ def firs_coordinate_conversion(raw_file, correctTime=False):
     )
 
     helio_coord = stony_coord.transform_to(frames.Helioprojective)
-    return helio_coord, rotation_angle, date, coadd, exptime
+    return helio_coord, rotation_angle, date, coadd, exptime, obstime
 
 
 def firs_deskew(flat_map_fname, lineIndices=[188, 254]):
@@ -1091,7 +1091,7 @@ def firs_deskew(flat_map_fname, lineIndices=[188, 254]):
 # noinspection PyTypeChecker
 def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
                        rotation, date, dx, dy, exptime, coadd,
-                       correctTime=False):
+                       correctTime=False, obstime=None):
     """Helper function that constructs HDUList for packaging to a final level 1.5 data product
     Parameters:
     -----------
@@ -1126,12 +1126,19 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
     """
 
     meta_info = readsav(meta_file)
-    t0 = np.datetime64(date) + np.timedelta64(
-        int(1000 * 60 * 60 * meta_info['ttime'][0]), 'ms'
-    )
-    t1 = np.datetime64(date) + np.timedelta64(
-        int(1000 * 60 * 60 * meta_info['ttime'][-1]), 'ms'
-    )
+    if not obstime:
+        t0 = np.datetime64(date) + np.timedelta64(
+            int(1000 * 60 * 60 * meta_info['ttime'][0]), 'ms'
+        )
+        t1 = np.datetime64(date) + np.timedelta64(
+            int(1000 * 60 * 60 * meta_info['ttime'][-1]), 'ms'
+        )
+    else:
+        t0 = np.datetime64(obstime)
+        t1 = t0 + np.timedelta64(
+                int(1000 * 60 * 60 * meta_info['ttime'][-1]), 'ms'
+        )
+
 
     if correctTime:
         utc_offset = _correct_datetimes(t0)
@@ -1528,7 +1535,7 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
         refwvls = []
         indices = []
 
-    coordinates, crotan, date, coadd, exptime = firs_coordinate_conversion(raw_file, correctTime=correctTime)
+    coordinates, crotan, date, coadd, exptime, obstime = firs_coordinate_conversion(raw_file, correctTime=correctTime)
 
     print("Writing FIRS Level-1.5 fits file.")
     hdulist = firs_construct_hdu(
@@ -1542,7 +1549,8 @@ def firs_to_fits(firs_map_fname, flat_map_fname, raw_file, outname,
         dy,
         exptime,
         coadd,
-        correctTime=correctTime
+        correctTime=correctTime,
+        obstime=obstime
     )
 
     hdulist.writeto(outname, overwrite=True)
