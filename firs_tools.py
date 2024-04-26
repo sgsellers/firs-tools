@@ -1136,7 +1136,9 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
     else:
         t0 = np.datetime64(obstime)
         t1 = t0 + np.timedelta64(
-                int(1000 * 60 * 60 * meta_info['ttime'][-1]), 'ms'
+                int(1000 * 60 * 60 * (
+                    meta_info['ttime'][-1] - meta_info['ttime'][0]
+                )), 'ms'
         )
 
 
