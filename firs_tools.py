@@ -1192,7 +1192,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
     ext1.header['CRPIX1'] = firs_data.shape[0] / 2
     ext1.header['CRPIX2'] = firs_data.shape[2] / 2
     ext1.header['CRPIX3'] = 1
-    ext1.header['CROTAN'] = rotation
+    ext1.header['CROTA2'] = rotation
 
     ext2 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 1, :, :])))
     ext2.header['EXTNAME'] = ('Stokes-Q', "Corrected for I,V Crosstalk. Not normalized.")
@@ -1211,7 +1211,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
     ext2.header['CRPIX1'] = firs_data.shape[0] / 2
     ext2.header['CRPIX2'] = firs_data.shape[2] / 2
     ext2.header['CRPIX3'] = 1
-    ext2.header['CROTAN'] = rotation
+    ext2.header['CROTA2'] = rotation
 
     ext3 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 2, :, :])))
     ext3.header['EXTNAME'] = ('Stokes-U', "Corrected for I,V Crosstalk. Not normalized.")
@@ -1230,7 +1230,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
     ext3.header['CRPIX1'] = firs_data.shape[0] / 2
     ext3.header['CRPIX2'] = firs_data.shape[2] / 2
     ext3.header['CRPIX3'] = 1
-    ext3.header['CROTAN'] = rotation
+    ext3.header['CROTA2'] = rotation
 
     ext4 = fits.ImageHDU(np.flipud(np.rot90(firs_data[:, 3, :, :])))
     ext4.header['EXTNAME'] = ('Stokes-V', "Corrected for I crosstalk. Not normalized")
@@ -1249,7 +1249,7 @@ def firs_construct_hdu(firs_data, firs_lambda, meta_file, coordinates,
     ext4.header['CRPIX1'] = firs_data.shape[0] / 2
     ext4.header['CRPIX2'] = firs_data.shape[2] / 2
     ext4.header['CRPIX3'] = 1
-    ext4.header['CROTAN'] = rotation
+    ext4.header['CROTA2'] = rotation
 
     ext5 = fits.ImageHDU(firs_lambda)
     ext5.header['EXTNAME'] = 'lambda-coordinate'
@@ -1312,10 +1312,10 @@ def firs_contstruct_param_hdu(
     crval2 = firs_data[1].header['CRVAL2']
     crpix1 = firs_data[1].header['CRPIX1']
     crpix2 = firs_data[1].header['CRPIX2']
-    crotan = firs_data[1].header['CROTAN']
+    crotan = firs_data[1].header['CROTA2']
 
     crkeys = ['CDELT1', 'CDELT2', 'CTYPE1', 'CTYPE2', 'CUNIT1', 'CUNIT2',
-              'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 'CROTAN']
+              'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2', 'CROTA2']
 
     crvals = [cdelt1, cdelt2, ctype1, ctype2, cunit1, cunit2, crval1, crval2, crpix1, crpix2, crotan]
 
@@ -2178,7 +2178,7 @@ def repackHazel(
         ext.header['CRPIX1'] = nx / 2
         ext.header['CRPIX2'] = ny / 2
         ext.header['CRPIX3'] = 1
-        ext.header['CROTAN'] = fitsFile[1].header['CROTAN']
+        ext.header['CROTA2'] = fitsFile[1].header['CROTA2']
         fits.append(saveName, ext.data, ext.header)
 
     # Finally, we can do the synthetic profiles...
@@ -2204,7 +2204,7 @@ def repackHazel(
         ext.header['CRPIX1'] = nx / 2
         ext.header['CRPIX2'] = ny / 2
         ext.header['CRPIX3'] = 1
-        ext.header['CROTAN'] = fitsFile[1].header['CROTAN']
+        ext.header['CROTA2'] = fitsFile[1].header['CROTA2']
         fits.append(saveName, ext.data, ext.header)
 
     # And the chisq map
@@ -2223,7 +2223,7 @@ def repackHazel(
     ext.header['CRVAL2'] = fitsFile[1].header['CRVAL2']
     ext.header['CRPIX1'] = nx / 2
     ext.header['CRPIX2'] = ny / 2
-    ext.header['CROTAN'] = fitsFile[1].header['CROTAN']
+    ext.header['CROTA2'] = fitsFile[1].header['CROTA2']
     fits.append(saveName, ext.data, ext.header)
 
     # The Wavelength Array...
@@ -2487,7 +2487,7 @@ def hazelPrep(inFile, outPath,
         Default is None-type to use [10824, 10831.5] (captures Si I and He I but not telluric features).
         Otherwise, user can provide waveRange as [wMin, wMax]
     translation: bool
-        True to rotate data cube 90 degrees and flip n/s to bring alignment into agreement with CROTAN.
+        True to rotate data cube 90 degrees and flip n/s to bring alignment into agreement with CROTA2.
         This is a legacy option for fits files made before this behaviour was fixed in firs-tools
     stokesLimit: float
         Sets all Stokes QUV profiles for Si I and He I that are below this sigma-level to zero to avoid
@@ -2601,7 +2601,7 @@ def hazelPrep(inFile, outPath,
     stokes_v = binArray(stokes_v, 1, binSlits, np.nansum)
 
     # Assuming the FIRS data is oriented correctly at this point, y is the 0th axis.
-    # At CROTAN = 0, this is north-south
+    # At CROTA2 = 0, this is north-south
     xyGrid = np.zeros((2, firs_file[1].data.shape[0], firs_file[1].data.shape[1]))
     if translation:
         xyGrid = np.flip(np.rot90(xyGrid, axes=(1, 2)), axis=1)
